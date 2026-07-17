@@ -1,0 +1,13 @@
+{
+  "name": "reader-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Language reader app with GitHub-backed word storage",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

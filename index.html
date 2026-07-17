@@ -1,0 +1,2403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reader</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-primary: #0a0a0f;
+    --bg-secondary: #12121a;
+    --bg-tertiary: #1a1a26;
+    --bg-hover: #22222e;
+    --bg-card: #16161f;
+    --border: #2a2a3a;
+    --text-primary: #e8e8ed;
+    --text-secondary: #8888a0;
+    --text-muted: #55556a;
+    --accent: #6366f1;
+    --accent-hover: #7577f5;
+    --accent-dim: rgba(99, 102, 241, 0.15);
+    --green: #22c55e;
+    --green-dim: rgba(34, 197, 94, 0.15);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245, 158, 11, 0.15);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.15);
+    --radius: 10px;
+    --transition: 0.2s ease;
+  }
+
+  html, body, #root {
+    height: 100%;
+    display: flex;
+  }
+
+  #root {
+    flex: 1;
+    width: 100%;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+    display: flex;
+  }
+
+  /* ── Shared inputs / buttons ──────────────────────────── */
+  .input {
+    padding: 9px 13px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--transition);
+  }
+
+  .input:focus { border-color: var(--accent); }
+  .input::placeholder { color: var(--text-muted); }
+
+  textarea.input { resize: vertical; }
+
+  .btn {
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-danger { background: var(--red-dim); color: var(--red); border: 1px solid rgba(239,68,68,0.25); }
+  .btn-danger:hover { background: rgba(239,68,68,0.25); }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition);
+  }
+
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .icon-btn svg { width: 12px; height: 12px; }
+
+  /* ── Empty state ──────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 32px 12px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  /* ── Modal ────────────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+
+  .modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 460px;
+    max-width: 92vw;
+  }
+
+  .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 18px; }
+  .modal-field { margin-bottom: 13px; }
+  .modal-field label { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; }
+  .modal-field .input { width: 100%; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+  /* ── Main content area ─────────────────────────────────── */
+  .main {
+    flex: 1;
+    min-width: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 40px 48px;
+    box-sizing: border-box;
+  }
+
+  .main::-webkit-scrollbar { width: 6px; }
+  .main::-webkit-scrollbar-track { background: transparent; }
+  .main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── LingQ-Style Reader ─────────────────────────────────── */
+  .lq-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; width: 100%; min-width: 0; box-sizing: border-box; contain: inline-size; }
+  .lq-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .lq-title { font-size: 22px; font-weight: 700; }
+
+  .lq-stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 620px; }
+  .lq-stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; position: relative; overflow: hidden; }
+  .lq-stat-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 2px 0 0 2px; }
+  .lq-stat-card.lq-stat-known::before { background: #22c55e; }
+  .lq-stat-card.lq-stat-learning::before { background: #fde047; }
+  .lq-stat-card.lq-stat-texts::before { background: var(--accent); }
+  .lq-stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 6px; }
+  .lq-stat-value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Story Generator */
+  .lq-story-gen { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; max-width: 620px; position: relative; overflow: hidden; margin-bottom: 4px; }
+  .lq-story-gen::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(to bottom, #a855f7, var(--accent)); border-radius: 2px 0 0 2px; }
+  .lq-story-gen-header { margin-bottom: 14px; }
+  .lq-story-gen-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .lq-story-gen-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .lq-story-gen-controls { display: flex; align-items: flex-end; gap: 14px; }
+  .lq-story-gen-slider-row { flex: 1; }
+  .lq-story-gen-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; display: block; }
+  .lq-story-slider { width: 100%; height: 4px; -webkit-appearance: none; appearance: none; background: var(--border); border-radius: 2px; outline: none; }
+  .lq-story-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid var(--bg-card); box-shadow: 0 0 6px rgba(99,102,241,0.4); }
+  .lq-story-gen-btn { padding: 10px 22px; background: linear-gradient(135deg, #a855f7, var(--accent)); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 10px rgba(168,85,247,0.35); white-space: nowrap; }
+  .lq-story-gen-btn:hover { box-shadow: 0 4px 18px rgba(168,85,247,0.5); transform: translateY(-1px); }
+  .lq-story-gen-btn:disabled { opacity: 0.6; pointer-events: none; }
+  .lq-story-gen-error { font-size: 12px; color: var(--red); margin-top: 10px; }
+  .lq-story-gen-status { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+  .lq-story-gen-timer { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; margin-left: auto; }
+  .lq-story-gen-spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: story-spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes story-spin { to { transform: rotate(360deg); } }
+
+  .lq-library-tabs { display: flex; gap: 0; max-width: 620px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .lq-library-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 18px; font-size: 13px; font-weight: 500; font-family: inherit; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; }
+  .lq-library-tab:hover { color: var(--text-primary); }
+  .lq-library-tab-active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+  .lq-library { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 620px; }
+  .lq-text-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; cursor: pointer; transition: all var(--transition); position: relative; overflow: hidden; }
+  .lq-text-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); border-radius: 2px 0 0 2px; opacity: 0.5; transition: opacity var(--transition); }
+  .lq-text-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+  .lq-text-card:hover::before { opacity: 1; }
+  .lq-text-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .lq-text-card-title { font-size: 15px; font-weight: 600; line-height: 1.3; flex: 1; }
+  .lq-text-card-lang { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-dim); border-radius: 5px; padding: 3px 8px; white-space: nowrap; flex-shrink: 0; }
+  .lq-text-card-preview { font-size: 12px; color: var(--text-secondary); line-height: 1.6; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; overflow-wrap: break-word; }
+  .lq-text-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .lq-text-card-wordcount { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+  .lq-text-card-time { font-size: 11px; color: var(--text-muted); }
+
+  /* Reader */
+  .lq-reader-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .lq-back-btn { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; color: var(--text-secondary); font-size: 13px; cursor: pointer; font-family: inherit; transition: all var(--transition); flex-shrink: 0; }
+  .lq-back-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .lq-reader-title { font-size: 18px; font-weight: 700; flex: 1; }
+  .lq-reader-lang-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-dim); border-radius: 6px; padding: 4px 10px; flex-shrink: 0; }
+  .lq-delete-btn { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit; transition: all var(--transition); flex-shrink: 0; }
+  .lq-delete-btn:hover { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.08); }
+
+  .lq-reader-body { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 36px 42px; line-height: 2.15; font-size: 17px; width: 100%; box-sizing: border-box; word-break: break-word; overflow-wrap: break-word; user-select: none; -webkit-user-select: none; }
+
+  /* Media embed in reader view (YouTube + audio) */
+  .lq-page-with-media { display: flex; flex-direction: column; height: 100vh; max-height: 100vh; overflow: hidden; }
+  .lq-page-with-media .lq-reader-header { flex-shrink: 0; }
+  .lq-page-with-media .lq-reader-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+  .lq-page-with-media .lq-reader-nav { flex-shrink: 0; }
+  .lq-media-wrap { flex-shrink: 0; width: 100%; background: #000; border-top: 1px solid var(--border); margin-top: 12px; }
+  .lq-yt-iframe { width: 100%; height: 200px; display: block; border: 0; }
+  .lq-audio-wrap { background: var(--bg-tertiary); padding: 12px 16px; }
+  .lq-audio-player { width: 100%; height: 40px; }
+  .lq-yt-toggle { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit; transition: all var(--transition); flex-shrink: 0; }
+  .lq-yt-toggle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+  /* Word spans */
+  .lq-word { cursor: pointer; border-radius: 3px; padding: 1px 3px; transition: background 0.1s; display: inline; user-select: none; -webkit-user-select: none; }
+  .lq-word:hover { opacity: 0.72; }
+  .lq-word.lq-word-sel { background: rgba(99,102,241,0.32) !important; border-bottom: 2px solid var(--accent) !important; color: #c7d2fe !important; transition: background 0.1s, border-color 0.1s; }
+  @keyframes lq-sel-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.3); } 50% { box-shadow: 0 0 8px 2px rgba(99,102,241,0.4); } }
+  @media (pointer: coarse) { .lq-word.lq-word-sel { animation: lq-sel-pulse 0.8s ease-in-out infinite; } }
+
+  /* Mobile selection arrow bar */
+  .lq-sel-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .lq-sel-arrow {
+    padding: 8px 12px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    touch-action: manipulation;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .lq-sel-arrow:active { background: var(--accent-dim); border-color: var(--accent); }
+  .lq-sel-arrow:disabled { opacity: 0.3; pointer-events: none; }
+  .lq-sel-arrow-shrink { font-size: 11px; color: var(--text-secondary); }
+  .lq-sel-translate-btn {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  .lq-sel-translate-btn:active {
+    background: var(--accent-hover);
+    transform: scale(0.96);
+  }
+  .lq-word[data-status="0"] { background: rgba(59,130,246,0.28); border-bottom: 2px solid #3b82f6; color: #bfdbfe; }
+  .lq-word[data-status="1"] { background: rgba(253,224,71,0.38); border-bottom: 2px solid #fde047; }
+  .lq-word[data-status="2"] { background: rgba(253,224,71,0.2);  border-bottom: 2px solid rgba(253,224,71,0.7); }
+  .lq-word[data-status="3"] { background: rgba(253,224,71,0.09); border-bottom: 2px solid rgba(253,224,71,0.4); }
+  .lq-word[data-status="4"] { background: rgba(253,224,71,0.03); border-bottom: 1px solid rgba(253,224,71,0.2); }
+  /* Phrase highlight: continuous block for all tokens in the phrase */
+  .lq-word-phrase-span { cursor: pointer; border-radius: 0; }
+  .lq-word-phrase-span[data-status="1"] { background: rgba(168,85,247,0.35); border-bottom: 2px dashed #a855f7; color: #e9d5ff; }
+  .lq-word-phrase-span[data-status="2"] { background: rgba(168,85,247,0.2);  border-bottom: 2px dashed rgba(168,85,247,0.7); color: #e9d5ff; }
+  .lq-word-phrase-span[data-status="3"] { background: rgba(168,85,247,0.1);  border-bottom: 2px dashed rgba(168,85,247,0.4); }
+  .lq-word-phrase-span[data-status="4"] { background: rgba(168,85,247,0.04); border-bottom: 1px dashed rgba(168,85,247,0.25); }
+  .lq-phrase-first { border-top-left-radius: 3px; border-bottom-left-radius: 3px; padding-left: 1px; }
+  .lq-phrase-last  { border-top-right-radius: 3px; border-bottom-right-radius: 3px; padding-right: 1px; }
+  .lq-word-known { cursor: pointer; }
+
+  /* Popup */
+  .lq-popup { position: fixed; z-index: 2000; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 22px 24px 20px; width: 300px; box-shadow: 0 20px 60px rgba(0,0,0,0.65); }
+  .lq-popup-close { position: absolute; top: 12px; right: 12px; background: var(--bg-tertiary); border: none; cursor: pointer; color: var(--text-muted); font-size: 14px; line-height: 1; padding: 5px 8px; border-radius: 6px; transition: all 0.15s; }
+  .lq-popup-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .lq-popup-word { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 10px; padding-right: 32px; }
+  .lq-popup-audio-btn { background: var(--accent-dim); border: 1px solid rgba(99,102,241,0.2); cursor: pointer; color: var(--accent); padding: 5px 9px; font-size: 15px; line-height: 1; border-radius: 8px; transition: all 0.15s; flex-shrink: 0; }
+  .lq-popup-audio-btn:hover { background: rgba(99,102,241,0.2); }
+  .lq-popup-divider { border: none; border-top: 1px solid var(--border); margin: 12px 0 14px; }
+  .lq-popup-translation { font-size: 15px; color: var(--text-secondary); min-height: 22px; }
+  .lq-popup-translation.lq-loading { color: var(--text-muted); font-style: italic; font-size: 13px; }
+  .lq-popup-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin: 14px 0 8px; }
+  .lq-popup-stages { display: flex; gap: 6px; margin-bottom: 10px; }
+  .lq-stage-btn { flex: 1; padding: 8px 4px; border-radius: 8px; border: 1.5px solid transparent; cursor: pointer; font-size: 12px; font-weight: 700; font-family: inherit; transition: all 0.15s; opacity: 0.35; }
+  .lq-stage-btn.lq-stage-active { opacity: 1; transform: scale(1.07); }
+  .lq-stage-btn[data-s="1"] { background: rgba(253,224,71,0.15); border-color: #fde047;                 color: #fde047; }
+  .lq-stage-btn[data-s="2"] { background: rgba(253,224,71,0.08); border-color: rgba(253,224,71,0.65); color: rgba(253,224,71,0.8); }
+  .lq-stage-btn[data-s="3"] { background: rgba(253,224,71,0.04); border-color: rgba(253,224,71,0.38); color: rgba(253,224,71,0.6); }
+  .lq-stage-btn[data-s="4"] { background: rgba(253,224,71,0.02); border-color: rgba(253,224,71,0.2);  color: rgba(253,224,71,0.4); }
+  .lq-popup-known-btn { width: 100%; padding: 10px; background: linear-gradient(135deg, rgba(34,197,94,0.14), rgba(34,197,94,0.07)); border: 1px solid rgba(34,197,94,0.32); border-radius: 10px; color: #22c55e; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s; letter-spacing: 0.02em; }
+  .lq-popup-known-btn:hover { background: linear-gradient(135deg, rgba(34,197,94,0.24), rgba(34,197,94,0.14)); border-color: rgba(34,197,94,0.5); }
+  .lq-popup-ignore-btn { width: 100%; padding: 7px 10px; margin-top: 6px; background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .lq-popup-ignore-btn:hover { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.06); }
+  .lq-popup-ignore-btn.lq-ignored { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.08); }
+
+  /* Stat card clickable */
+  .lq-stat-card.lq-clickable { cursor: pointer; }
+  .lq-stat-card.lq-clickable:hover { border-color: var(--accent); background: var(--bg-hover); }
+
+  /* Word list modal */
+  .lq-word-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 420px; overflow-y: auto; padding-top: 4px; }
+  .lq-word-list-item { display: flex; align-items: center; gap: 8px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; font-size: 13px; }
+  .lq-wl-stage { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 4px; }
+  .lq-wl-stage[data-s="1"] { background: rgba(253,224,71,0.18); color: #fde047; }
+  .lq-wl-stage[data-s="2"] { background: rgba(253,224,71,0.10); color: rgba(253,224,71,0.8); }
+  .lq-wl-stage[data-s="3"] { background: rgba(253,224,71,0.06); color: rgba(253,224,71,0.6); }
+  .lq-wl-stage[data-s="4"] { background: rgba(253,224,71,0.03); color: rgba(253,224,71,0.4); }
+
+  /* POS group toggles */
+  .lq-pos-group { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .lq-pos-toggle { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; cursor: pointer; background: var(--bg-secondary); user-select: none; }
+  .lq-pos-toggle:hover { background: var(--bg-hover); }
+  .lq-pos-label { font-size: 13px; font-weight: 600; text-transform: capitalize; }
+  .lq-pos-count { font-size: 11px; color: var(--text-muted); background: var(--bg-tertiary); padding: 2px 7px; border-radius: 10px; }
+  .lq-pos-chevron { font-size: 10px; color: var(--text-muted); transition: transform 0.15s; display: inline-block; }
+  .lq-pos-chevron.open { transform: rotate(90deg); }
+  .lq-pos-body { padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* Study page */
+  .lq-study-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .lq-study-mode-card { background: var(--bg-secondary); border: 2px solid var(--border); border-radius: 12px; padding: 24px 16px; cursor: pointer; text-align: center; transition: border-color 0.15s, background 0.15s; }
+  .lq-study-mode-card:hover { border-color: var(--accent); background: var(--bg-hover); }
+  .lq-study-mode-card.lq-study-mode-disabled { opacity: 0.45; cursor: not-allowed; }
+  .lq-study-mode-card.lq-study-mode-disabled:hover { border-color: var(--border); background: var(--bg-secondary); }
+  .lq-study-mode-icon { font-size: 30px; margin-bottom: 10px; }
+  .lq-study-mode-title { font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+  .lq-study-mode-desc { font-size: 12px; color: var(--text-muted); }
+  .lq-flashcard-wrap { perspective: 900px; width: 100%; max-width: 480px; height: 200px; margin: 0 auto; cursor: pointer; }
+  .lq-flashcard { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.45s; }
+  .lq-flashcard.flipped { transform: rotateY(180deg); }
+  .lq-flashcard-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-secondary); backface-visibility: hidden; -webkit-backface-visibility: hidden; padding: 24px; }
+  .lq-flashcard-back { transform: rotateY(180deg); }
+  .lq-flashcard-word { font-size: 30px; font-weight: 700; text-align: center; }
+  .lq-flashcard-hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .lq-flashcard-trans { font-size: 22px; font-weight: 600; color: #a5b4fc; text-align: center; }
+  .lq-mcq-question { font-size: 24px; font-weight: 700; text-align: center; padding: 20px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; }
+  .lq-mcq-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+  .lq-mcq-opt { background: var(--bg-secondary); border: 2px solid var(--border); border-radius: 8px; padding: 12px 16px; cursor: pointer; font-size: 14px; text-align: center; transition: border-color 0.1s, background 0.1s; font-family: inherit; color: var(--text-primary); }
+  .lq-mcq-opt:not([disabled]):hover { border-color: var(--accent); }
+  .lq-mcq-opt[data-ans="correct"] { border-color: #22c55e; background: rgba(34,197,94,0.12); color: #22c55e; }
+  .lq-mcq-opt[data-ans="wrong"] { border-color: #ef4444; background: rgba(239,68,68,0.12); color: #ef4444; }
+  .lq-study-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .lq-study-progress { font-size: 13px; color: var(--text-muted); text-align: center; }
+  .lq-study-results { text-align: center; padding: 40px 24px; }
+  .lq-study-score { font-size: 52px; font-weight: 800; color: #a5b4fc; margin-bottom: 6px; }
+  .lq-study-score-label { font-size: 15px; color: var(--text-muted); margin-bottom: 28px; }
+  .lq-study-result-actions { display: flex; gap: 12px; justify-content: center; }
+
+  /* SRS rating buttons */
+  .lq-srs-buttons { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+  .lq-srs-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 18px; border-radius: 8px; border: 2px solid var(--border); background: var(--bg-secondary); cursor: pointer; font-family: inherit; color: var(--text-primary); transition: border-color 0.15s, background 0.15s; min-width: 70px; }
+  .lq-srs-btn:hover { background: var(--bg-hover); }
+  .lq-srs-btn .lq-srs-label { font-size: 13px; font-weight: 600; }
+  .lq-srs-btn .lq-srs-interval { font-size: 10px; color: var(--text-muted); }
+  .lq-srs-btn[data-rating="1"] { border-color: rgba(239,68,68,0.4); }
+  .lq-srs-btn[data-rating="1"]:hover { border-color: #ef4444; background: rgba(239,68,68,0.08); }
+  .lq-srs-btn[data-rating="2"] { border-color: rgba(251,146,60,0.4); }
+  .lq-srs-btn[data-rating="2"]:hover { border-color: #fb923c; background: rgba(251,146,60,0.08); }
+  .lq-srs-btn[data-rating="3"] { border-color: rgba(34,197,94,0.4); }
+  .lq-srs-btn[data-rating="3"]:hover { border-color: #22c55e; background: rgba(34,197,94,0.08); }
+  .lq-srs-btn[data-rating="4"] { border-color: rgba(99,102,241,0.4); }
+  .lq-srs-btn[data-rating="4"]:hover { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+  .lq-study-fetching { text-align: center; padding: 24px; color: var(--text-muted); font-size: 14px; }
+  .lq-study-due-info { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; }
+  .lq-study-due-info span { display: flex; align-items: center; gap: 4px; }
+
+  /* Import button */
+  .lq-backup-btn { padding: 7px 14px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary); font-size: 12px; font-weight: 500; font-family: inherit; cursor: pointer; transition: all 0.2s; }
+  .lq-backup-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--accent); }
+  .lq-import-btn { display: flex; align-items: center; gap: 8px; padding: 9px 20px; background: linear-gradient(135deg, var(--accent), #7c3aed); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 10px rgba(99,102,241,0.35); letter-spacing: 0.01em; }
+  .lq-import-btn:hover { background: linear-gradient(135deg, var(--accent-hover), #6d28d9); box-shadow: 0 4px 18px rgba(99,102,241,0.5); transform: translateY(-1px); }
+  .lq-import-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+  /* Import form */
+  .lq-import-form { display: flex; flex-direction: column; gap: 16px; }
+  .lq-lang-select { padding: 9px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; font-family: inherit; width: 100%; }
+  .lq-import-textarea { width: 100%; height: 200px; resize: vertical; font-family: inherit; font-size: 14px; line-height: 1.7; padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); box-sizing: border-box; }
+  .lq-import-textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Language tabs */
+  .lq-lang-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .lq-lang-tab { padding: 7px 16px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all var(--transition); }
+  .lq-lang-tab.active { background: var(--accent-dim); border-color: rgba(99,102,241,0.3); color: var(--accent); font-weight: 600; }
+  .lq-lang-tab:hover:not(.active) { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* Page navigation */
+  .lq-reader-nav { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+  .lq-reader-page-info { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .lq-nav-btn { padding: 9px 22px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; color: var(--text-secondary); font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: all var(--transition); }
+  .lq-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .lq-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .lq-nav-next { background: var(--accent-dim); border-color: rgba(99,102,241,0.25); color: var(--accent); font-weight: 600; }
+  .lq-nav-next:hover { background: rgba(99,102,241,0.2) !important; border-color: var(--accent) !important; box-shadow: 0 2px 12px rgba(99,102,241,0.25); }
+
+  /* ── Mobile layout overrides ── */
+  @media (max-width: 768px) {
+    html, body, #root { overflow: visible; height: auto; max-width: 100%; }
+    body { overflow-x: hidden; }
+    #root { flex-direction: column; width: 100%; overflow-x: hidden; }
+
+    .main {
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      min-height: 100vh;
+      padding: 20px 16px 32px;
+      overflow-x: hidden;
+      overflow-y: visible;
+    }
+
+    .lq-page { contain: none !important; width: 100% !important; min-width: 0 !important; }
+    .lq-stats-row { grid-template-columns: 1fr !important; max-width: none !important; width: 100% !important; }
+    .lq-stat-card { min-width: 0 !important; }
+    .lq-library { grid-template-columns: 1fr !important; max-width: none !important; width: 100% !important; }
+    .lq-story-gen { max-width: none !important; width: 100% !important; }
+    .lq-story-gen-controls { flex-direction: column; align-items: stretch; }
+    .lq-library-tabs { max-width: none !important; width: 100% !important; }
+    .lq-text-card { min-width: 0 !important; max-width: 100% !important; }
+    .lq-study-modes { grid-template-columns: 1fr !important; }
+    .lq-reader-body { padding: 18px 14px; font-size: 15px; }
+    .lq-srs-buttons { flex-wrap: wrap; }
+    .lq-srs-btn { min-width: 60px; flex: 1; }
+    .lq-study-result-actions { flex-direction: column; align-items: center; }
+    .lq-reader-header { gap: 8px; }
+    .lq-reader-title { font-size: 15px; }
+    .lq-mcq-options { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Icons ────────────────────────────────────────────────────────
+const I = {
+  plus:     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>,
+  reader:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>,
+};
+
+// ── API / data ───────────────────────────────────────────────────
+function useData(endpoint, fallback) {
+  const [data, setData] = useState(fallback);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/' + endpoint)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  function save(next) {
+    setData(next);
+    fetch('/api/' + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    });
+  }
+
+  return [data, save, loaded];
+}
+
+// ── YouTube helpers ──────────────────────────────────────────────
+function extractYouTubeId(url) {
+  if (!url) return null;
+  const patterns = [
+    /youtube\.com\/watch\?v=([^&]+)/,
+    /youtu\.be\/([^?&]+)/,
+    /youtube\.com\/embed\/([^?&]+)/,
+    /youtube\.com\/shorts\/([^?&]+)/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// ── Time helpers ─────────────────────────────────────────────────
+function timeAgo(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' minute' + (m === 1 ? '' : 's') + ' ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' hour' + (h === 1 ? '' : 's') + ' ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return mo + ' month' + (mo === 1 ? '' : 's') + ' ago';
+  return Math.floor(mo / 12) + ' year(s) ago';
+}
+
+// ── Language options ─────────────────────────────────────────────
+const LANG_OPTIONS = [
+  { code: 'fr', label: 'French',     speechLang: 'fr-FR', apiCode: 'fr' },
+  { code: 'ko', label: 'Korean',     speechLang: 'ko-KR', apiCode: 'ko' },
+  { code: 'id', label: 'Indonesian', speechLang: 'id-ID', apiCode: 'id' },
+  { code: 'es', label: 'Spanish',    speechLang: 'es-ES', apiCode: 'es' },
+  { code: 'de', label: 'German',     speechLang: 'de-DE', apiCode: 'de' },
+  { code: 'ja', label: 'Japanese',   speechLang: 'ja-JP', apiCode: 'ja' },
+];
+
+function tokenizeText(text) {
+  const tokens = [];
+  const regex = /([A-Za-z\u00C0-\u024F\uAC00-\uD7A3\u3040-\u30FF\u4E00-\u9FFF]+(?:['\u2019][A-Za-z\u00C0-\u024F]+)*)|([^A-Za-z\u00C0-\u024F\uAC00-\uD7A3\u3040-\u30FF\u4E00-\u9FFF]+)/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1]) {
+      tokens.push({ type: 'word', raw: match[1], key: match[1].toLowerCase() });
+    } else {
+      tokens.push({ type: 'punct', raw: match[2] });
+    }
+  }
+  return tokens;
+}
+
+function speakInLang(text, speechLang) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = speechLang;
+  u.rate = 0.85;
+  const voices = window.speechSynthesis.getVoices();
+  const prefix = speechLang.split('-')[0];
+  const voice = voices.find(v => v.lang.startsWith(prefix));
+  if (voice) u.voice = voice;
+  window.speechSynthesis.speak(u);
+}
+
+function isBadTranslation(t) {
+  if (!t) return true;
+  if (t === '(unavailable)') return true;
+  if (/MYMEMORY WARNING|you used all available free/i.test(t)) return true;
+  return false;
+}
+
+async function fetchTranslation(word, fromCode) {
+  try {
+    const res = await fetch(`/api/translate?q=${encodeURIComponent(word)}&lang=${encodeURIComponent(fromCode)}`);
+    const data = await res.json();
+    const t = data.translation || '(unavailable)';
+    return isBadTranslation(t) ? '(unavailable)' : t;
+  } catch {
+    return '(unavailable)';
+  }
+}
+
+function LingQPage() {
+  const [lqData, saveLqData, loaded] = useData('lingq', {
+    texts: [],
+    wordStatus: {},
+    wordPos: {},
+    wordTranslations: {},
+    srs: {},
+  });
+
+  // One-time cleanup: remove any bad cached translations
+  const cleanedBadTranslations = React.useRef(false);
+  React.useEffect(() => {
+    if (!loaded || cleanedBadTranslations.current) return;
+    cleanedBadTranslations.current = true;
+    const wt = lqData.wordTranslations || {};
+    let dirty = false;
+    const cleaned = {};
+    for (const [lang, words] of Object.entries(wt)) {
+      cleaned[lang] = {};
+      for (const [word, trans] of Object.entries(words)) {
+        if (isBadTranslation(trans)) { dirty = true; }
+        else { cleaned[lang][word] = trans; }
+      }
+    }
+    if (dirty) saveLqData({ ...lqData, wordTranslations: cleaned });
+  }, [loaded]);
+
+
+  const [view, setView]                 = useState('library');
+  const [activeTextId, setActiveTextId] = useState(null);
+  const [readerPage, setReaderPage]     = useState(0);
+  const [activeLang, setActiveLang]     = useState('fr');
+  const [popup, setPopup]               = useState(null);
+  const [showImport, setShowImport]     = useState(false);
+  const [importTitle, setImportTitle]   = useState('');
+  const [importContent, setImportContent] = useState('');
+  const [importLang, setImportLang]     = useState('fr');
+  const [autoTranslate, setAutoTranslate] = useState(true);
+  const [translating, setTranslating]   = useState(false);
+  const [importUrl, setImportUrl]       = useState('');
+  const [importSourceUrl, setImportSourceUrl] = useState('');
+  const [videoHidden, setVideoHidden]   = useState(false);
+  const [urlFetching, setUrlFetching]   = useState(false);
+  const [urlError, setUrlError]         = useState('');
+  const [audioUploading, setAudioUploading] = useState(false);
+  const [audioUploadStatus, setAudioUploadStatus] = useState('');
+  const [audioHidden, setAudioHidden]   = useState(false);
+  const [dragSel, setDragSel]           = useState(null);
+  const [statsModal, setStatsModal]     = useState(null);
+  const isDragging  = React.useRef(false);
+  const dragSelRef  = React.useRef(null);
+  const lqDataRef        = React.useRef(lqData);
+  lqDataRef.current    = lqData;
+  const batchFetchRef  = React.useRef(false);
+  const bgTranslateRef = React.useRef(null);
+  const advancingRef   = React.useRef(false);
+  // Mobile long-press multi-word selection
+  const longPressTimer   = React.useRef(null);
+  const longPressActive  = React.useRef(false);
+  const touchStartPos    = React.useRef(null);
+  // Arrow-button touch selection (persists after finger lift)
+  const [touchSel, setTouchSel]     = useState(null); // { start, end }
+  const touchSelRef                  = React.useRef(null);
+  const phraseHighlightRef           = React.useRef({});
+  const [posOpen, setPosOpen]             = useState({});
+  const [studyMode, setStudyMode]         = useState(null);
+  const [studyCards, setStudyCards]       = useState([]);
+  const [studyIdx, setStudyIdx]           = useState(0);
+  const [studyFlipped, setStudyFlipped]   = useState(false);
+  const [studyOptions, setStudyOptions]   = useState([]);
+  const [studyAnswer, setStudyAnswer]     = useState(null);
+  const [studyScore, setStudyScore]       = useState({ correct: 0, total: 0 });
+  const [studyFetching, setStudyFetching] = useState(false);
+  const studyFetchRef = React.useRef(null);
+  // Story generator
+  const [storyPct, setStoryPct]           = useState(30);
+  const [storyLength, setStoryLength]     = useState(1); // 0=short(50-100), 1=medium(150-250), 2=long(300-500)
+  const [storyCEFR, setStoryCEFR]         = useState(2); // 0=A1, 1=A2, 2=B1, 3=B2, 4=C1, 5=C2
+  const [storyGenerating, setStoryGenerating] = useState(false);
+  const [storyError, setStoryError]       = useState('');
+  const [storyStatus, setStoryStatus]     = useState('');
+  const [storyElapsed, setStoryElapsed]   = useState(0);
+  const storyTimerRef = React.useRef(null);
+  const [libraryTab, setLibraryTab]       = useState('imported'); // 'imported' | 'generated'
+
+  if (!loaded) return <div className="lq-page"><p style={{color:'var(--text-muted)'}}>Loading…</p></div>;
+
+  const texts = lqData.texts || [];
+
+  const rawWS = lqData.wordStatus || {};
+  const wordStatus = (
+    Object.keys(rawWS).length > 0 && typeof Object.values(rawWS)[0] !== 'object'
+  ) ? { fr: rawWS } : rawWS;
+
+  const langsWithTexts = LANG_OPTIONS.filter(l => texts.some(t => t.language === l.code));
+  const multiLang      = langsWithTexts.length > 1;
+  const effectiveLang  = langsWithTexts.some(l => l.code === activeLang)
+    ? activeLang
+    : (langsWithTexts[0]?.code || 'fr');
+
+  const langWS        = wordStatus[effectiveLang] || {};
+  const knownCount    = Object.values(langWS).filter(s => s === 5).length;
+  const learningCount = Object.values(langWS).filter(s => s >= 1 && s <= 4).length;
+  const filteredTexts = multiLang ? texts.filter(t => t.language === effectiveLang) : texts;
+  const activeText    = texts.find(t => t.id === activeTextId) || null;
+
+  function setWS(langCode, updates) {
+    const next = { ...wordStatus, [langCode]: { ...(wordStatus[langCode] || {}), ...updates } };
+    saveLqData({ ...lqData, wordStatus: next });
+  }
+
+  function updateWord(key, status, langCode) {
+    setWS(langCode, { [key]: status });
+    setPopup(p => p && p.key === key ? { ...p, status } : p);
+  }
+
+  function openPhrasePopup(cx, cy, phraseKey, tokens, from, to, langOption) {
+    const currentStatus = (wordStatus[langOption.code] || {})[phraseKey] ?? 1;
+    const phraseRaw = tokens.slice(from, to + 1).map(t => t.raw).join('');
+    // Auto-speak the phrase (synchronous from click for gesture context)
+    speakInLang(phraseRaw, langOption.speechLang);
+    const wordToks = [];
+    for (let i = from; i <= to; i++) {
+      if (tokens[i] && tokens[i].type === 'word') wordToks.push(tokens[i]);
+    }
+    const childKeys = wordToks.map(t => t.key);
+    let x = cx - 150, y = cy + 14;
+    if (x + 308 > window.innerWidth) x = window.innerWidth - 314;
+    if (x < 8) x = 8;
+    if (y + 300 > window.innerHeight) y = cy - 310;
+    if (y < 8) y = 8;
+    const cachedTrans = (lqDataRef.current.wordTranslations?.[langOption.code] || {})[phraseKey];
+    if (cachedTrans && !isBadTranslation(cachedTrans)) {
+      setPopup({ word: phraseRaw, key: phraseKey, translation: cachedTrans, loading: false, x, y, status: currentStatus, isPhrase: true, childKeys, langOption });
+    } else {
+      setPopup({ word: phraseRaw, key: phraseKey, translation: null, loading: true, x, y, status: currentStatus, isPhrase: true, childKeys, langOption });
+      fetchTranslation(phraseRaw, langOption.apiCode).then(translation => {
+        setPopup(p => p && p.key === phraseKey ? { ...p, translation, loading: false } : p);
+        if (translation && translation !== '(unavailable)') {
+          const fresh = lqDataRef.current;
+          const wt = fresh.wordTranslations || {};
+          const langWt = { ...(wt[langOption.code] || {}), [phraseKey]: translation };
+          saveLqData({ ...fresh, wordTranslations: { ...wt, [langOption.code]: langWt } });
+        }
+      });
+    }
+  }
+
+  async function openPopup(cx, cy, token, langOption) {
+    const key = token.key;
+    // Auto-speak the word in its language (must be synchronous from click for gesture context)
+    speakInLang(token.raw, langOption.speechLang);
+    const currentStatus = (wordStatus[langOption.code] || {})[key] ?? 0;
+    let initStatus = currentStatus;
+    if (currentStatus === 0) {
+      initStatus = 0; // Don't auto-add to learning — wait for explicit button press
+    } else if (currentStatus === -1) {
+      initStatus = -1;
+    }
+    let x = cx - 150, y = cy + 14;
+    if (x + 308 > window.innerWidth)  x = window.innerWidth - 314;
+    if (x < 8) x = 8;
+    if (y + 300 > window.innerHeight) y = cy - 310;
+    if (y < 8) y = 8;
+    const cachedTrans = (lqDataRef.current.wordTranslations?.[langOption.code] || {})[key];
+    if (cachedTrans && !isBadTranslation(cachedTrans)) {
+      setPopup({ word: token.raw, key, translation: cachedTrans, loading: false, x, y, status: initStatus, langOption });
+    } else {
+      setPopup({ word: token.raw, key, translation: null, loading: true, x, y, status: initStatus, langOption });
+      const translation = await fetchTranslation(token.raw, langOption.apiCode);
+      setPopup(p => p && p.key === key ? { ...p, translation, loading: false } : p);
+      if (translation && translation !== '(unavailable)') {
+        const fresh = lqDataRef.current;
+        const wt = fresh.wordTranslations || {};
+        const langTrans = { ...(wt[langOption.code] || {}), [key]: translation };
+        saveLqData({ ...fresh, wordTranslations: { ...wt, [langOption.code]: langTrans } });
+      }
+    }
+    if (!(lqDataRef.current.wordPos?.[langOption.code] || {})[key]) {
+      fetchPOS(token.raw, langOption.code).then(pos => {
+        const fresh2 = lqDataRef.current;
+        const wp = fresh2.wordPos || {};
+        const langPos = { ...(wp[langOption.code] || {}), [key]: pos };
+        saveLqData({ ...fresh2, wordPos: { ...wp, [langOption.code]: langPos } });
+      });
+    }
+  }
+
+  function handleWordPointerDown(e, idx) {
+    // Touch is handled by dedicated long-press handlers on the reader body
+    if (e.pointerType === 'touch') return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    isDragging.current = true;
+    dragSelRef.current = { start: idx, end: idx, cx: e.clientX, cy: e.clientY };
+    setDragSel({ start: idx, end: idx });
+  }
+
+  function handleReaderPointerMove(e) {
+    if (e.pointerType === 'touch') return; // handled by touch events
+    if (!isDragging.current) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
+    const idxStr = el.getAttribute('data-widx');
+    if (idxStr === null) return;
+    const idx = parseInt(idxStr, 10);
+    if (isNaN(idx)) return;
+    const next = { ...dragSelRef.current, end: idx };
+    dragSelRef.current = next;
+    setDragSel({ start: next.start, end: next.end });
+  }
+
+  async function handleReaderPointerUp(e, tokens, langOpt) {
+    if (e.pointerType === 'touch') return; // handled by touch events
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    const sel = dragSelRef.current;
+    dragSelRef.current = null;
+    setDragSel(null);
+    if (!sel) return;
+    const min = Math.min(sel.start, sel.end);
+    const max = Math.max(sel.start, sel.end);
+    const wordToks = [];
+    for (let i = min; i <= max; i++) {
+      if (tokens[i] && tokens[i].type === 'word') wordToks.push(tokens[i]);
+    }
+    if (wordToks.length === 0) return;
+    const cx = sel.cx, cy = sel.cy;
+    if (wordToks.length === 1) {
+      openPopup(cx, cy, wordToks[0], langOpt);
+    } else {
+      const phrase = tokens.slice(min, max + 1).map(t => t.raw).join('');
+      const phraseKey = phrase.toLowerCase().trim();
+      const childKeys = wordToks.map(t => t.key);
+      // Auto-speak the phrase (synchronous from click for gesture context)
+      speakInLang(phrase, langOpt.speechLang);
+      const langWS = wordStatus[langOpt.code] || {};
+      const currentStatus = langWS[phraseKey] ?? 0;
+      let initStatus = currentStatus; // Don't auto-add — wait for explicit button press
+      let x = cx - 150, y = cy + 14;
+      if (x + 308 > window.innerWidth)  x = window.innerWidth - 314;
+      if (x < 8) x = 8;
+      if (y + 260 > window.innerHeight) y = cy - 270;
+      if (y < 8) y = 8;
+      setPopup({ word: phrase, key: phraseKey, translation: null, loading: true, x, y, isPhrase: true, childKeys, status: initStatus, langOption: langOpt });
+      const translation = await fetchTranslation(phrase, langOpt.apiCode);
+      setPopup(p => p && p.key === phraseKey ? { ...p, translation, loading: false } : p);
+      if (translation && translation !== '(unavailable)') {
+        const fresh = lqDataRef.current;
+        const wt = fresh.wordTranslations || {};
+        const langWt = { ...(wt[langOpt.code] || {}), [phraseKey]: translation };
+        saveLqData({ ...fresh, wordTranslations: { ...wt, [langOpt.code]: langWt } });
+      }
+    }
+  }
+
+  // ── Mobile long-press touch handlers ─────────────────────────
+  function handleTouchStart(e) {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+
+    // If there's an active touchSel and user taps outside it, dismiss it
+    if (touchSelRef.current) {
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const idxStr = el && el.getAttribute('data-widx');
+      if (idxStr !== null) {
+        const idx = parseInt(idxStr, 10);
+        const min = Math.min(touchSelRef.current.start, touchSelRef.current.end);
+        const max = Math.max(touchSelRef.current.start, touchSelRef.current.end);
+        if (idx < min || idx > max) {
+          // Tapped outside selection — dismiss
+          touchSelRef.current = null;
+          setTouchSel(null);
+        }
+      } else {
+        // Tapped on non-word area — dismiss
+        touchSelRef.current = null;
+        setTouchSel(null);
+        setHandlePos(null);
+      }
+      return;
+    }
+
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!el) return;
+    const idxStr = el.getAttribute('data-widx');
+    if (idxStr === null) return;
+    const idx = parseInt(idxStr, 10);
+    if (isNaN(idx)) return;
+
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY, idx };
+    longPressActive.current = false;
+    clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      longPressActive.current = true;
+      // Show selection with handles (via touchSel, not dragSel)
+      touchSelRef.current = { start: idx, end: idx };
+      setTouchSel({ start: idx, end: idx });
+      // Haptic feedback
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, 400);
+  }
+
+  function handleTouchMove(e) {
+    if (!touchStartPos.current) return;
+    const touch = e.touches[0];
+
+    if (!longPressActive.current) {
+      // If finger moved too far before long-press fired, cancel (user is scrolling)
+      const dx = touch.clientX - touchStartPos.current.x;
+      const dy = touch.clientY - touchStartPos.current.y;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        clearTimeout(longPressTimer.current);
+        touchStartPos.current = null;
+      }
+      return; // Allow normal scrolling
+    }
+
+    // Long press active — prevent scrolling and extend word selection via handles
+    e.preventDefault();
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!el) return;
+    const idxStr = el.getAttribute('data-widx');
+    if (idxStr === null) return;
+    const idx = parseInt(idxStr, 10);
+    if (isNaN(idx)) return;
+    const next = { start: touchSelRef.current.start, end: idx };
+    touchSelRef.current = next;
+    setTouchSel({ ...next });
+  }
+
+  function handleTouchEnd(e, tokens, langOpt) {
+    clearTimeout(longPressTimer.current);
+
+    if (longPressActive.current) {
+      // Finger lifted after long-press — leave touchSel with handles visible
+      e.preventDefault();
+      longPressActive.current = false;
+      touchStartPos.current = null;
+      // touchSel persists — handles and translate button stay visible
+      return;
+    }
+
+    // Short tap — open phrase popup if word is in a phrase, otherwise single-word popup
+    if (touchStartPos.current && !touchSelRef.current) {
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+      const idx = touchStartPos.current.idx;
+      const cx = touchStartPos.current.x;
+      const cy = touchStartPos.current.y;
+      touchStartPos.current = null;
+      if (dx < 15 && dy < 15) {
+        const ph = phraseHighlightRef.current[idx];
+        if (ph) {
+          openPhrasePopup(cx, cy, ph.key, tokens, ph.from, ph.to, langOpt);
+        } else if (tokens[idx] && tokens[idx].type === 'word') {
+          openPopup(cx, cy, tokens[idx], langOpt);
+        }
+      }
+    }
+  }
+
+  // ── Arrow-button expand/shrink for mobile selection ─────────────
+  function expandSelLeft(tokens) {
+    if (!touchSelRef.current) return;
+    const min = Math.min(touchSelRef.current.start, touchSelRef.current.end);
+    // Find the next word token to the left
+    let idx = min - 1;
+    while (idx >= 0 && tokens[idx] && tokens[idx].type !== 'word') idx--;
+    if (idx < 0) return;
+    const next = { start: idx, end: Math.max(touchSelRef.current.start, touchSelRef.current.end) };
+    touchSelRef.current = next;
+    setTouchSel({ ...next });
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
+  function expandSelRight(tokens) {
+    if (!touchSelRef.current) return;
+    const max = Math.max(touchSelRef.current.start, touchSelRef.current.end);
+    // Find the next word token to the right
+    let idx = max + 1;
+    while (idx < tokens.length && tokens[idx] && tokens[idx].type !== 'word') idx++;
+    if (idx >= tokens.length) return;
+    const next = { start: Math.min(touchSelRef.current.start, touchSelRef.current.end), end: idx };
+    touchSelRef.current = next;
+    setTouchSel({ ...next });
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
+  function shrinkSelLeft(tokens) {
+    if (!touchSelRef.current) return;
+    const min = Math.min(touchSelRef.current.start, touchSelRef.current.end);
+    const max = Math.max(touchSelRef.current.start, touchSelRef.current.end);
+    if (min === max) return; // Can't shrink a single word
+    // Remove rightmost word
+    let idx = max - 1;
+    while (idx > min && tokens[idx] && tokens[idx].type !== 'word') idx--;
+    const next = { start: min, end: idx };
+    touchSelRef.current = next;
+    setTouchSel({ ...next });
+  }
+
+  function shrinkSelRight(tokens) {
+    if (!touchSelRef.current) return;
+    const min = Math.min(touchSelRef.current.start, touchSelRef.current.end);
+    const max = Math.max(touchSelRef.current.start, touchSelRef.current.end);
+    if (min === max) return; // Can't shrink a single word
+    // Remove leftmost word
+    let idx = min + 1;
+    while (idx < max && tokens[idx] && tokens[idx].type !== 'word') idx++;
+    const next = { start: idx, end: max };
+    touchSelRef.current = next;
+    setTouchSel({ ...next });
+  }
+
+  function translateTouchSel(tokens, langOpt) {
+    const sel = touchSelRef.current;
+    if (!sel) return;
+    const min = Math.min(sel.start, sel.end);
+    const max = Math.max(sel.start, sel.end);
+    const wordToks = [];
+    for (let i = min; i <= max; i++) {
+      if (tokens[i] && tokens[i].type === 'word') wordToks.push(tokens[i]);
+    }
+    if (wordToks.length === 0) return;
+
+    // Clear the touch selection
+    touchSelRef.current = null;
+    setTouchSel(null);
+
+    if (wordToks.length === 1) {
+      // Use center of the word element for popup position
+      const el = document.querySelector(`[data-widx="${min}"]`);
+      const rect = el ? el.getBoundingClientRect() : { left: 100, top: 100 };
+      openPopup(rect.left + rect.width / 2, rect.top, wordToks[0], langOpt);
+    } else {
+      const phrase = tokens.slice(min, max + 1).map(t => t.raw).join('');
+      const phraseKey = phrase.toLowerCase().trim();
+      const childKeys = wordToks.map(t => t.key);
+      // Auto-speak the phrase (synchronous from tap for gesture context)
+      speakInLang(phrase, langOpt.speechLang);
+      const langWS = wordStatus[langOpt.code] || {};
+      const currentStatus = langWS[phraseKey] ?? 0;
+      let initStatus = currentStatus; // Don't auto-add — wait for explicit button press
+      // Position popup near selection
+      const firstEl = document.querySelector(`[data-widx="${min}"]`);
+      const rect = firstEl ? firstEl.getBoundingClientRect() : { left: 100, top: 100, width: 50 };
+      let x = rect.left - 50, y = rect.top - 270;
+      if (x + 308 > window.innerWidth) x = window.innerWidth - 314;
+      if (x < 8) x = 8;
+      if (y < 8) y = rect.top + 40;
+      setPopup({ word: phrase, key: phraseKey, translation: null, loading: true, x, y, isPhrase: true, childKeys, status: initStatus, langOption: langOpt });
+      fetchTranslation(phrase, langOpt.apiCode).then(translation => {
+        setPopup(p => p && p.key === phraseKey ? { ...p, translation, loading: false } : p);
+        if (translation && translation !== '(unavailable)') {
+          const fresh = lqDataRef.current;
+          const wt = fresh.wordTranslations || {};
+          const langWt = { ...(wt[langOpt.code] || {}), [phraseKey]: translation };
+          saveLqData({ ...fresh, wordTranslations: { ...wt, [langOpt.code]: langWt } });
+        }
+      });
+    }
+  }
+
+  async function fetchPOS(word, langCode) {
+    if (!word) return 'unknown';
+    const clean = word.trim().split(/\s+/)[0].toLowerCase();
+    if (!clean) return 'unknown';
+    try {
+      const r = await fetch('/api/pos?word=' + encodeURIComponent(clean) + '&lang=' + encodeURIComponent(langCode || 'en'));
+      const j = await r.json();
+      return j.pos || 'unknown';
+    } catch { return 'unknown'; }
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function buildStudyCards(langCode) {
+    const ws = lqDataRef.current.wordStatus?.[langCode] || {};
+    const wt = lqDataRef.current.wordTranslations?.[langCode] || {};
+    const srsData = lqDataRef.current.srs?.[langCode] || {};
+    const now = Date.now();
+    const learningWords = Object.entries(ws)
+      .filter(([w, s]) => s >= 1 && s <= 4)
+      .map(([w, s]) => {
+        const raw = wt[w] || null;
+        const translation = (raw && raw.toLowerCase() !== w.toLowerCase()) ? raw : null;
+        const srs = srsData[w] || { interval: 0, ease: 2.5, reviews: 0, dueAt: null };
+        const isDue = !srs.dueAt || new Date(srs.dueAt).getTime() <= now;
+        return { word: w, translation, stage: s, srs, isDue };
+      });
+    const due = learningWords.filter(c => c.isDue && c.srs.reviews > 0)
+      .sort((a, b) => (new Date(a.srs.dueAt || 0)).getTime() - (new Date(b.srs.dueAt || 0)).getTime());
+    const newCards = shuffle(learningWords.filter(c => c.srs.reviews === 0));
+    return [...due, ...newCards].slice(0, 10);
+  }
+
+  function getSRS(langCode, word) {
+    const srsData = lqDataRef.current.srs?.[langCode] || {};
+    return srsData[word] || { interval: 0, ease: 2.5, reviews: 0, dueAt: null };
+  }
+
+  function formatInterval(days) {
+    if (!days || days <= 0) return 'new';
+    if (days < 0.007) return '<1m';
+    if (days < 0.042) return Math.round(days * 1440) + 'm';
+    if (days < 1) return Math.round(days * 24) + 'h';
+    if (days < 30) return Math.round(days) + 'd';
+    return Math.round(days / 30) + 'mo';
+  }
+
+  function previewIntervals(srsEntry) {
+    const iv = srsEntry.interval || 0;
+    const ease = srsEntry.ease || 2.5;
+    const isNew = srsEntry.reviews === 0;
+    if (isNew) return { again: '1m', hard: '6m', good: '1d', easy: '4d' };
+    return {
+      again: '10m',
+      hard: formatInterval(Math.max(0.007, iv * 1.2)),
+      good: formatInterval(Math.max(1, iv * ease)),
+      easy: formatInterval(Math.max(1, iv * ease * 1.3)),
+    };
+  }
+
+  function rateSRS(langCode, word, rating) {
+    const srs = getSRS(langCode, word);
+    const iv = srs.interval || 0;
+    let ease = srs.ease || 2.5;
+    const isNew = srs.reviews === 0;
+    let newInterval;
+    if (rating === 1) {
+      newInterval = isNew ? 0.00069 : 0.00694;
+      ease = Math.max(1.3, ease - 0.2);
+    } else if (rating === 2) {
+      newInterval = isNew ? 0.00417 : Math.max(0.00694, iv * 1.2);
+      ease = Math.max(1.3, ease - 0.15);
+    } else if (rating === 3) {
+      newInterval = isNew ? 1 : Math.max(1, iv * ease);
+    } else {
+      newInterval = isNew ? 4 : Math.max(1, iv * ease * 1.3);
+      ease = Math.min(3.0, ease + 0.15);
+    }
+    const now = new Date();
+    const dueAt = new Date(now.getTime() + newInterval * 86400000).toISOString();
+    const entry = { interval: newInterval, ease, reviews: (srs.reviews || 0) + 1, dueAt, lastReview: now.toISOString() };
+    const fresh = lqDataRef.current;
+    const srsAll = { ...(fresh.srs || {}), [langCode]: { ...(fresh.srs?.[langCode] || {}), [word]: entry } };
+    saveLqData({ ...fresh, srs: srsAll });
+    return entry;
+  }
+
+  async function fetchStudyTranslations(langCode, words) {
+    const langOption = LANG_OPTIONS.find(l => l.code === langCode);
+    if (!langOption) return;
+    setStudyFetching(true);
+    let count = 0;
+    for (const word of words) {
+      const fresh = lqDataRef.current;
+      const wt = fresh.wordTranslations?.[langCode] || {};
+      if (wt[word] && !isBadTranslation(wt[word])) continue;
+      const translation = await fetchTranslation(word, langOption.apiCode);
+      if (translation && translation !== '(unavailable)' && translation.toLowerCase() !== word.toLowerCase()) {
+        const f2 = lqDataRef.current;
+        const wtUpd = { ...(f2.wordTranslations || {}), [langCode]: { ...(f2.wordTranslations?.[langCode] || {}), [word]: translation } };
+        saveLqData({ ...f2, wordTranslations: wtUpd });
+        count++;
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    setStudyFetching(false);
+    if (count > 0) {
+      const freshCards = buildStudyCards(langCode);
+      setStudyCards(freshCards);
+    }
+  }
+
+  async function batchFetchPOS(langCode) {
+    if (batchFetchRef.current) return;
+    batchFetchRef.current = true;
+    const langOption = LANG_OPTIONS.find(l => l.code === langCode);
+    if (!langOption) { batchFetchRef.current = false; return; }
+    const fresh = lqDataRef.current;
+    const ws = fresh.wordStatus?.[langCode] || {};
+    const wp = fresh.wordPos?.[langCode] || {};
+    const needPOS = Object.entries(ws)
+      .filter(([w, s]) => s === 5 && !wp[w])
+      .map(([w]) => w)
+      .slice(0, 40);
+    for (const word of needPOS) {
+      const pos = await fetchPOS(word, langCode);
+      const f = lqDataRef.current;
+      const wpUpd = { ...(f.wordPos || {}), [langCode]: { ...(f.wordPos?.[langCode] || {}), [word]: pos } };
+      saveLqData({ ...f, wordPos: wpUpd });
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const wt = lqDataRef.current.wordTranslations?.[langCode] || {};
+    const needTrans = Object.entries(ws)
+      .filter(([w, s]) => s >= 1 && !wt[w])
+      .map(([w]) => w)
+      .slice(0, 40);
+    for (const word of needTrans) {
+      const fresh2 = lqDataRef.current;
+      const wt2 = fresh2.wordTranslations?.[langCode] || {};
+      if (wt2[word]) continue;
+      const translation = await fetchTranslation(word, langOption.apiCode);
+      if (translation && translation !== '(unavailable)') {
+        const f2 = lqDataRef.current;
+        const wtUpd = { ...(f2.wordTranslations || {}), [langCode]: { ...(f2.wordTranslations?.[langCode] || {}), [word]: translation } };
+        saveLqData({ ...f2, wordTranslations: wtUpd });
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    batchFetchRef.current = false;
+  }
+
+  function startBgTranslate(textContent, langCode) {
+    if (bgTranslateRef.current) bgTranslateRef.current.cancelled = true;
+    const langOption = LANG_OPTIONS.find(l => l.code === langCode);
+    if (!langOption) return;
+    const tokens = tokenizeText(textContent);
+    const uniqueWords = [...new Set(tokens.filter(t => t.type === 'word').map(t => t.key))];
+    const ctx = { cancelled: false };
+    bgTranslateRef.current = ctx;
+    (async () => {
+      for (const word of uniqueWords) {
+        if (ctx.cancelled) return;
+        const fresh = lqDataRef.current;
+        const wt = fresh.wordTranslations?.[langCode] || {};
+        if (wt[word] && !isBadTranslation(wt[word])) continue;
+        const translation = await fetchTranslation(word, langOption.apiCode);
+        if (ctx.cancelled) return;
+        if (translation && translation !== '(unavailable)') {
+          const f = lqDataRef.current;
+          const wtUpd = { ...(f.wordTranslations || {}), [langCode]: { ...(f.wordTranslations?.[langCode] || {}), [word]: translation } };
+          saveLqData({ ...f, wordTranslations: wtUpd });
+        }
+        await new Promise(r => setTimeout(r, 120));
+      }
+    })();
+  }
+
+  const LEARNING_CODES = ['fr', 'ko', 'id'];
+  const SOURCE_LANGS = [
+    { code: 'en', label: 'English' },
+    ...LANG_OPTIONS.filter(l => LEARNING_CODES.includes(l.code)),
+  ];
+  const importTargets = autoTranslate
+    ? (importLang === 'en' ? LEARNING_CODES : LEARNING_CODES.filter(c => c !== importLang))
+    : [];
+
+  async function fetchFromUrl() {
+    const url = importUrl.trim();
+    if (!url) return;
+    setUrlFetching(true);
+    setUrlError('');
+    try {
+      const resp = await fetch('/api/fetch-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await resp.json();
+      if (data.error) {
+        setUrlError(data.error);
+      } else {
+        if (data.title) setImportTitle(data.title);
+        if (data.text) setImportContent(data.text);
+        if (data.language) {
+          const lang = data.language.toLowerCase().split('-')[0];
+          const match = SOURCE_LANGS.find(l => l.code === lang);
+          if (match) setImportLang(match.code);
+        }
+        setImportSourceUrl(data.sourceUrl || url);
+        setUrlError('');
+      }
+    } catch (e) {
+      setUrlError('Failed to fetch: ' + e.message);
+    }
+    setUrlFetching(false);
+  }
+
+  async function uploadAudio(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['mp3','wav'].includes(ext)) {
+      setUrlError('Only .mp3 and .wav files are supported.');
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setUrlError('File too large (max 100MB).');
+      return;
+    }
+    setAudioUploading(true);
+    setAudioUploadStatus('Uploading audio (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)…');
+    setUrlError('');
+    try {
+      const resp = await fetch('/api/upload-audio', {
+        method: 'POST',
+        headers: { 'X-Filename': file.name },
+        body: file,
+      });
+      setAudioUploadStatus('Transcribing with Whisper…');
+      const data = await resp.json();
+      if (data.error) {
+        setUrlError(data.error);
+        setAudioUploading(false);
+        setAudioUploadStatus('');
+        return;
+      }
+      if (data.text) setImportContent(data.text);
+      if (!importTitle.trim()) setImportTitle(file.name.replace(/\.[^.]+$/, ''));
+      // Store audioFile reference so we can play it back in reader
+      setImportSourceUrl('audio:' + data.audioFile);
+      setAudioUploadStatus('');
+    } catch (e) {
+      setUrlError('Upload failed: ' + e.message);
+    }
+    setAudioUploading(false);
+    setAudioUploadStatus('');
+  }
+
+  async function addText() {
+    if (!importTitle.trim() || !importContent.trim()) return;
+    const title   = importTitle.trim();
+    const content = importContent.trim();
+    const now     = new Date().toISOString();
+    const toAdd   = [];
+
+    const srcUrl = importSourceUrl || '';
+    if (importLang !== 'en') {
+      toAdd.push({ id: 'txt-' + Date.now(), title, language: importLang, content, addedAt: now, sourceUrl: srcUrl });
+    }
+
+    if (autoTranslate && importTargets.length > 0) {
+      setTranslating(true);
+      for (let i = 0; i < importTargets.length; i++) {
+        const targetCode = importTargets[i];
+        const targetLabel = LANG_OPTIONS.find(l => l.code === targetCode)?.label || targetCode;
+        try {
+          const [bodyRes, titleRes] = await Promise.all([
+            fetch('/api/translate-full', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: content, from: importLang, to: targetCode }),
+            }),
+            fetch('/api/translate?q=' + encodeURIComponent(title) + '&from=' + importLang + '&to=' + targetCode),
+          ]);
+          const data = await bodyRes.json();
+          const titleData = await titleRes.json();
+          if (data.limitHit) {
+            setTranslating(false);
+            alert('Translation limit reached for today (MyMemory free tier). The text was imported in its original language. Try again tomorrow.');
+            break;
+          }
+          const translatedTitle = (titleData.translation && titleData.translation !== title && titleData.translation !== '(unavailable)')
+            ? titleData.translation
+            : title + ' (' + targetLabel + ')';
+          toAdd.push({
+            id: 'txt-' + (Date.now() + i + 1),
+            title: translatedTitle,
+            language: targetCode,
+            content: data.translated || content,
+            addedAt: now,
+            sourceUrl: srcUrl,
+          });
+        } catch {
+          // Skip failed translations silently
+        }
+      }
+      setTranslating(false);
+    }
+
+    saveLqData({ ...lqData, texts: [...texts, ...toAdd] });
+    setImportTitle(''); setImportContent(''); setImportUrl(''); setImportSourceUrl(''); setUrlError(''); setShowImport(false);
+  }
+
+  function deleteText(id) {
+    saveLqData({ ...lqData, texts: texts.filter(t => t.id !== id) });
+    if (activeTextId === id) { setView('library'); setActiveTextId(null); }
+  }
+
+  async function generateStory() {
+    setStoryError('');
+    setStoryStatus('');
+    setStoryElapsed(0);
+    const startTime = Date.now();
+    if (storyTimerRef.current) clearInterval(storyTimerRef.current);
+    storyTimerRef.current = setInterval(() => {
+      setStoryElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    const stopTimer = () => { if (storyTimerRef.current) { clearInterval(storyTimerRef.current); storyTimerRef.current = null; } };
+
+    // CEFR level descriptions for the prompt
+    const cefrLabels = ['A1','A2','B1','B2','C1','C2'];
+    const cefrDescs = [
+      'A1 (very simple vocabulary, very short sentences, only present tense, basic everyday topics like greetings and food)',
+      'A2 (simple vocabulary, short sentences, present and past tense, familiar everyday topics)',
+      'B1 (moderate vocabulary, compound sentences, mixed tenses, everyday and some abstract topics)',
+      'B2 (varied vocabulary, complex sentences, all tenses including subjunctive, wider range of topics)',
+      'C1 (rich vocabulary including idioms, sophisticated sentence structures, nuanced and abstract themes)',
+      'C2 (native-level vocabulary, literary and rhetorical devices, complex argumentation, any topic)',
+    ];
+    const lengthMap = ['50-100', '150-250', '300-500'];
+
+    // Gather all learning words/phrases across all languages
+    const allLearning = [];
+    for (const [langCode, ws] of Object.entries(wordStatus)) {
+      const entries = Object.entries(ws).filter(([_, s]) => s >= 1 && s <= 4);
+      for (const [word] of entries) {
+        const langLabel = LANG_OPTIONS.find(l => l.code === langCode)?.label || langCode;
+        allLearning.push({ word, langCode, langLabel });
+      }
+    }
+
+    // Calculate word count (allow 0%)
+    const count = Math.round(allLearning.length * storyPct / 100);
+    let wordList = [];
+    let poolSize = 0;
+    if (count > 0 && allLearning.length > 0) {
+      poolSize = Math.min(allLearning.length, Math.max(count * 2, count + 10));
+      const shuffled = allLearning.slice().sort(() => Math.random() - 0.5);
+      const pool = shuffled.slice(0, poolSize);
+      wordList = pool.map(w => `${w.word} (${w.langLabel})`);
+    }
+
+    const targetLangs = LANG_OPTIONS.filter(l => texts.some(t => t.language === l.code));
+    if (targetLangs.length === 0) {
+      setStoryError('No languages configured. Import a text first so we know which languages to translate into.');
+      stopTimer();
+      return;
+    }
+
+    setStoryGenerating(true);
+    try {
+      // ── Step 1: Generate story with Ollama ──
+      setStoryStatus('Step 1/3 — Writing story with AI' + (count > 0 ? ' (' + count + ' words)' : '') + '…');
+      const resp = await fetch('/api/generate-story', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          words: wordList,
+          targetCount: count,
+          wordRange: lengthMap[storyLength],
+          difficulty: cefrDescs[storyCEFR],
+          cefrLevel: cefrLabels[storyCEFR],
+          languages: [],
+        }),
+      });
+      const data = await resp.json();
+      if (data.error) { setStoryError(data.error); setStoryGenerating(false); setStoryStatus(''); stopTimer(); return; }
+      const story = data.story;
+
+      // ── Step 2: Translate to each language ──
+      const translations = {};
+      let langIdx = 0;
+      for (const lang of targetLangs) {
+        langIdx++;
+        setStoryStatus('Step 2/3 — Translating to ' + lang.label + ' (' + langIdx + '/' + targetLangs.length + ')…');
+        try {
+          const tResp = await fetch('/api/translate-full', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: story, from: 'en', to: lang.code }),
+          });
+          const tData = await tResp.json();
+          if (tData.translated) translations[lang.code] = tData.translated;
+        } catch (tErr) {
+          console.warn('Translation to ' + lang.code + ' failed:', tErr);
+        }
+      }
+
+      // ── Step 3: Saving ──
+      setStoryStatus('Step 3/3 — Saving stories to library…');
+      const now = new Date().toISOString();
+      const dateStr = new Date().toLocaleDateString();
+      const toAdd = [];
+      for (const lang of targetLangs) {
+        const translated = translations[lang.code];
+        if (translated) {
+          toAdd.push({
+            id: 'txt-' + (Date.now() + targetLangs.indexOf(lang) + 1),
+            title: 'Story — ' + dateStr,
+            language: lang.code,
+            content: translated,
+            addedAt: now,
+            generated: true,
+          });
+        }
+      }
+
+      if (toAdd.length === 0) {
+        setStoryError('Story was generated but no translations were returned. Check your DeepL API key.');
+        setStoryGenerating(false); setStoryStatus(''); stopTimer();
+        return;
+      }
+
+      saveLqData({ ...lqDataRef.current, texts: [...(lqDataRef.current.texts || []), ...toAdd] });
+      setStoryStatus('Done!');
+      stopTimer();
+      setTimeout(() => { setStoryGenerating(false); setStoryStatus(''); setLibraryTab('generated'); }, 1500);
+    } catch (e) {
+      setStoryError('Failed to generate story: ' + e.message);
+      setStoryGenerating(false); setStoryStatus(''); stopTimer();
+    }
+  }
+
+  const WORDS_PER_PAGE = 45;
+
+  function paginateTokens(tokens) {
+    const pages = [];
+    let current = [], wc = 0;
+    for (const token of tokens) {
+      current.push(token);
+      if (token.type === 'word') wc++;
+      if (wc >= WORDS_PER_PAGE) {
+        if ((token.type === 'punct' && /[.!?]/.test(token.raw)) || wc >= WORDS_PER_PAGE + 15) {
+          const trimmed = [];
+          if (current.length > 0) {
+            const last = current[current.length - 1];
+            if (last.type === 'punct') {
+              const splitMatch = last.raw.match(/^([\s\S]*[.!?\u2026][\s]*)(["\x22\xAB\u201C\u201E\u2018'(\[{][\s]*)$/);
+              if (splitMatch) {
+                current.pop();
+                if (splitMatch[1]) current.push({ type: 'punct', raw: splitMatch[1] });
+                trimmed.push({ type: 'punct', raw: splitMatch[2] });
+              }
+            }
+          }
+          pages.push(current);
+          current = [...trimmed]; wc = 0;
+        }
+      }
+    }
+    if (current.length > 0) pages.push(current);
+    return pages.length > 0 ? pages : [tokens];
+  }
+
+  function advancePage(pageTokens, langCode) {
+    const updates = {};
+    const curLangWS = wordStatus[langCode] || {};
+    for (const t of pageTokens) {
+      if (t.type === 'word' && (curLangWS[t.key] ?? 0) === 0) updates[t.key] = 5;
+    }
+    if (Object.keys(updates).length > 0) setWS(langCode, updates);
+    setPopup(null);
+    setReaderPage(p => p + 1);
+  }
+
+  // ── STUDY VIEW ───────────────────────────────────────────────
+
+  if (view === 'study') {
+    const cards = studyCards;
+    const card  = cards[studyIdx] || null;
+
+    const studyLang = lqDataRef.current.texts?.find(t => t.language === effectiveLang) ? effectiveLang : effectiveLang;
+    if (studyFetchRef.current !== effectiveLang && cards.length > 0) {
+      studyFetchRef.current = effectiveLang;
+      const untranslated = cards.filter(c => !c.translation).map(c => c.word);
+      if (untranslated.length > 0) fetchStudyTranslations(effectiveLang, untranslated);
+    }
+
+    function generateOptions(idx, mode) {
+      const c = cards[idx];
+      if (!c) return;
+      const transPool  = cards.filter(x => x.translation);
+      const transTexts = transPool.map(x => x.translation);
+      const wordTexts  = transPool.map(x => x.word);
+      if (mode === 'word-trans') {
+        const others = shuffle(transTexts.filter(t => t !== c.translation)).slice(0, 3);
+        setStudyOptions(shuffle([c.translation, ...others]));
+      } else {
+        const others = shuffle(wordTexts.filter(w => w !== c.word)).slice(0, 3);
+        setStudyOptions(shuffle([c.word, ...others]));
+      }
+    }
+
+    function startMode(mode) {
+      setStudyMode(mode);
+      setStudyIdx(0);
+      setStudyFlipped(false);
+      setStudyAnswer(null);
+      setStudyScore({ correct: 0, total: 0 });
+      if (mode !== 'flashcard') generateOptions(0, mode);
+    }
+
+    function nextCard() {
+      const nextIdx = studyIdx + 1;
+      setStudyAnswer(null);
+      setStudyFlipped(false);
+      if (nextIdx >= cards.length) { setStudyMode('results'); return; }
+      setStudyIdx(nextIdx);
+      if (studyMode !== 'flashcard') generateOptions(nextIdx, studyMode);
+    }
+
+    function answerMCQ(option) {
+      if (studyAnswer !== null) return;
+      const correctAns = studyMode === 'word-trans' ? card.translation : card.word;
+      const isCorrect  = option === correctAns;
+      setStudyAnswer(option);
+      setStudyScore(s => ({ correct: s.correct + (isCorrect ? 1 : 0), total: s.total + 1 }));
+    }
+
+    function rateAndAdvance(rating) {
+      if (!card || advancingRef.current) return;
+      advancingRef.current = true;
+      rateSRS(effectiveLang, card.word, rating);
+      if (rating <= 2) {
+        setStudyCards(prev => [...prev, { ...card }]);
+      }
+      setStudyFlipped(false);
+      setTimeout(() => {
+        setStudyIdx(prev => prev + 1);
+        advancingRef.current = false;
+      }, 480);
+    }
+
+    const mcqCards   = cards.filter(c => c.translation);
+    const mcqEnabled = mcqCards.length >= 4;
+    const dueCount   = cards.filter(c => c.isDue && c.srs.reviews > 0).length;
+    const newCount   = cards.filter(c => c.srs.reviews === 0).length;
+
+    if (!studyMode) {
+      return (
+        <div className="lq-page">
+          <div className="lq-header">
+            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+              <button className="btn btn-ghost" onClick={() => setView('library')}>← Back</button>
+              <div className="lq-title">Study</div>
+            </div>
+          </div>
+          <div style={{display:'flex',alignItems:'baseline',gap:'12px',flexWrap:'wrap'}}>
+            <span style={{color:'var(--text-muted)',fontSize:'14px'}}>
+              {cards.length} word{cards.length !== 1 ? 's' : ''}
+            </span>
+            <div className="lq-study-due-info">
+              {dueCount > 0 && <span style={{color:'#fb923c'}}>● {dueCount} due</span>}
+              {newCount > 0 && <span style={{color:'#60a5fa'}}>● {newCount} new</span>}
+            </div>
+            {studyFetching && <span style={{color:'var(--accent)',fontSize:'12px'}}>Translating…</span>}
+          </div>
+          <div className="lq-study-modes">
+            <div className="lq-study-mode-card" onClick={() => startMode('flashcard')}>
+              <div className="lq-study-mode-icon">🃏</div>
+              <div className="lq-study-mode-title">Flashcards</div>
+              <div className="lq-study-mode-desc">Flip & rate your recall (SRS)</div>
+            </div>
+            <div className={'lq-study-mode-card' + (!mcqEnabled ? ' lq-study-mode-disabled' : '')}
+              onClick={() => mcqEnabled && startMode('word-trans')}
+              title={!mcqEnabled ? 'Need 4+ translated words' : ''}>
+              <div className="lq-study-mode-icon">{mcqEnabled ? '🔤' : '🔒'}</div>
+              <div className="lq-study-mode-title">Word → Translation</div>
+              <div className="lq-study-mode-desc">{mcqEnabled ? 'See the word, pick the meaning' : ('Need ' + Math.max(0,4-mcqCards.length) + ' more translated words')}</div>
+            </div>
+            <div className={'lq-study-mode-card' + (!mcqEnabled ? ' lq-study-mode-disabled' : '')}
+              onClick={() => mcqEnabled && startMode('trans-word')}
+              title={!mcqEnabled ? 'Need 4+ translated words' : ''}>
+              <div className="lq-study-mode-icon">{mcqEnabled ? '🔁' : '🔒'}</div>
+              <div className="lq-study-mode-title">Translation → Word</div>
+              <div className="lq-study-mode-desc">{mcqEnabled ? 'See the meaning, pick the word' : ('Need ' + Math.max(0,4-mcqCards.length) + ' more translated words')}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (studyMode === 'results') {
+      const pct = studyScore.total > 0 ? Math.round(studyScore.correct / studyScore.total * 100) : 100;
+      return (
+        <div className="lq-page">
+          <div className="lq-header"><div className="lq-title">Session Complete</div></div>
+          <div className="lq-study-results">
+            <div className="lq-study-score">{cards.length}</div>
+            <div className="lq-study-score-label">cards reviewed</div>
+            <div className="lq-study-result-actions">
+              <button className="btn btn-primary" onClick={() => {
+                const freshCards = buildStudyCards(effectiveLang);
+                setStudyCards(freshCards);
+                studyFetchRef.current = null;
+                setStudyMode(null);
+                setStudyIdx(0);
+                setStudyFlipped(false);
+                setStudyAnswer(null);
+                setStudyScore({ correct: 0, total: 0 });
+              }}>Study Again</button>
+              <button className="btn btn-ghost" onClick={() => { setView('library'); setStudyMode(null); }}>Back to Library</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (studyMode === 'flashcard') {
+      if (studyIdx >= cards.length) {
+        return (
+          <div className="lq-page">
+            <div className="lq-header"><div className="lq-title">Session Complete</div></div>
+            <div className="lq-study-results">
+              <div className="lq-study-score">{cards.length}</div>
+              <div className="lq-study-score-label">cards reviewed</div>
+              <div className="lq-study-result-actions">
+                <button className="btn btn-primary" onClick={() => {
+                  const freshCards = buildStudyCards(effectiveLang);
+                  setStudyCards(freshCards);
+                  studyFetchRef.current = null;
+                  setStudyMode(null);
+                  setStudyIdx(0);
+                  setStudyFlipped(false);
+                  advancingRef.current = false;
+                }}>Study Again</button>
+                <button className="btn btn-ghost" onClick={() => { setView('library'); setStudyMode(null); }}>Back to Library</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      const srsEntry = card ? getSRS(effectiveLang, card.word) : { interval: 0, ease: 2.5, reviews: 0 };
+      const intervals = previewIntervals(srsEntry);
+      const liveTranslation = card ? (lqDataRef.current.wordTranslations?.[effectiveLang] || {})[card.word] || card.translation : null;
+      const remaining = cards.length - studyIdx;
+      return (
+        <div className="lq-page">
+          <div className="lq-header">
+            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+              <button className="btn btn-ghost" onClick={() => setStudyMode(null)}>← Modes</button>
+              <div className="lq-title">Flashcards</div>
+            </div>
+          </div>
+          <div className="lq-study-progress">{remaining} remaining</div>
+          <div className="lq-flashcard-wrap" onClick={() => { if (!advancingRef.current) setStudyFlipped(f => !f); }}>
+            <div className={`lq-flashcard${studyFlipped ? ' flipped' : ''}`}>
+              <div className="lq-flashcard-face">
+                <div className="lq-flashcard-word">{card?.word}</div>
+                <div className="lq-flashcard-hint">Tap to reveal</div>
+              </div>
+              <div className="lq-flashcard-face lq-flashcard-back">
+                {liveTranslation
+                  ? <div className="lq-flashcard-trans">{liveTranslation}</div>
+                  : <div className="lq-flashcard-hint" style={{fontSize:'13px'}}>Translating…</div>
+                }
+              </div>
+            </div>
+          </div>
+          {!studyFlipped ? (
+            <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:'13px',marginTop:'8px'}}>
+              Tap the card to see the answer
+            </div>
+          ) : (
+            <div className="lq-srs-buttons">
+              <button className="lq-srs-btn" data-rating="1" onClick={() => rateAndAdvance(1)} disabled={advancingRef.current}>
+                <span className="lq-srs-label">Again</span>
+                <span className="lq-srs-interval">{intervals.again}</span>
+              </button>
+              <button className="lq-srs-btn" data-rating="2" onClick={() => rateAndAdvance(2)} disabled={advancingRef.current}>
+                <span className="lq-srs-label">Hard</span>
+                <span className="lq-srs-interval">{intervals.hard}</span>
+              </button>
+              <button className="lq-srs-btn" data-rating="3" onClick={() => rateAndAdvance(3)} disabled={advancingRef.current}>
+                <span className="lq-srs-label">Good</span>
+                <span className="lq-srs-interval">{intervals.good}</span>
+              </button>
+              <button className="lq-srs-btn" data-rating="4" onClick={() => rateAndAdvance(4)} disabled={advancingRef.current}>
+                <span className="lq-srs-label">Easy</span>
+                <span className="lq-srs-interval">{intervals.easy}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // MCQ mode
+    const correctAns = studyMode === 'word-trans' ? card?.translation : card?.word;
+    return (
+      <div className="lq-page">
+        <div className="lq-header">
+          <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+            <button className="btn btn-ghost" onClick={() => setStudyMode(null)}>← Modes</button>
+            <div className="lq-title">{studyMode === 'word-trans' ? 'Word → Translation' : 'Translation → Word'}</div>
+          </div>
+        </div>
+        <div className="lq-study-progress">{studyIdx + 1} / {cards.length} · {studyScore.correct} correct</div>
+        <div className="lq-mcq-question">
+          {studyMode === 'word-trans' ? card?.word : card?.translation}
+        </div>
+        <div className="lq-mcq-options">
+          {studyOptions.map((opt, i) => {
+            const isCorrectOpt = opt === correctAns;
+            let dataAns = undefined;
+            if (studyAnswer !== null) {
+              if (isCorrectOpt) dataAns = 'correct';
+              else if (opt === studyAnswer) dataAns = 'wrong';
+            }
+            return (
+              <button key={i} className="lq-mcq-opt" data-ans={dataAns}
+                disabled={!!studyAnswer}
+                onClick={() => answerMCQ(opt)}>
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+        {studyAnswer !== null && (
+          <div className="lq-study-nav" style={{marginTop:'12px'}}>
+            <div style={{color: studyAnswer === correctAns ? '#22c55e' : '#ef4444', fontWeight:600, fontSize:'15px'}}>
+              {studyAnswer === correctAns ? '✓ Correct!' : `✗ Answer: ${correctAns}`}
+            </div>
+            <button className="btn btn-primary" onClick={nextCard}>
+              {studyIdx < cards.length - 1 ? 'Next →' : 'See Results'}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── LIBRARY VIEW ─────────────────────────────────────────────
+
+  if (view === 'library') {
+    return (
+      <div className="lq-page" onClick={() => setPopup(null)}>
+
+        <div className="lq-header">
+          <div className="lq-title">Reader</div>
+          <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+            <button className="lq-backup-btn" onClick={() => { window.location.href = '/api/export'; }} title="Export backup">
+              ↓ Backup
+            </button>
+            <button className="lq-backup-btn" onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.json';
+              input.onchange = async (ev) => {
+                const file = ev.target.files[0];
+                if (!file) return;
+                try {
+                  const text = await file.text();
+                  const data = JSON.parse(text);
+                  if (!data || typeof data !== 'object') { alert('Invalid backup file'); return; }
+                  if (!window.confirm('This will replace all your current data with the backup. Continue?')) return;
+                  const r = await fetch('/api/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: text,
+                  });
+                  if (r.ok) {
+                    alert('Backup restored successfully! Reloading...');
+                    window.location.reload();
+                  } else {
+                    alert('Import failed');
+                  }
+                } catch { alert('Invalid JSON file'); }
+              };
+              input.click();
+            }} title="Import backup">
+              ↑ Restore
+            </button>
+            <button className="lq-import-btn" onClick={e => { e.stopPropagation(); setShowImport(true); }}>
+              {I.plus} Import
+            </button>
+          </div>
+        </div>
+
+        {multiLang ? (
+          <div className="lq-lang-tabs">
+            {langsWithTexts.map(l => (
+              <button key={l.code} className={`lq-lang-tab ${effectiveLang === l.code ? 'active' : ''}`} onClick={() => setActiveLang(l.code)}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{fontSize:'11px',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--text-muted)'}}>
+            {(LANG_OPTIONS.find(l => l.code === effectiveLang) || LANG_OPTIONS[0]).label} vocabulary
+          </div>
+        )}
+
+        <div className="lq-stats-row">
+          <div className="lq-stat-card lq-stat-known lq-clickable" onClick={() => { setStatsModal('known'); batchFetchPOS(effectiveLang); }}>
+            <div className="lq-stat-label">Known Words</div>
+            <div className="lq-stat-value" style={{color:'#22c55e'}}>{knownCount}</div>
+          </div>
+          <div className="lq-stat-card lq-stat-learning lq-clickable" onClick={() => { setStatsModal('learning'); batchFetchPOS(effectiveLang); }}>
+            <div className="lq-stat-label">Learning</div>
+            <div className="lq-stat-value" style={{color:'#fde047'}}>{learningCount}</div>
+          </div>
+          <div className="lq-stat-card lq-stat-texts">
+            <div className="lq-stat-label">Texts</div>
+            <div className="lq-stat-value">{filteredTexts.length}</div>
+          </div>
+        </div>
+
+        {statsModal && (() => {
+          const isKnownModal = statsModal === 'known';
+          const entries = Object.entries(langWS)
+            .filter(([_, s]) => isKnownModal ? s === 5 : (s >= 1 && s <= 4))
+            .sort((a, b) => isKnownModal ? a[0].localeCompare(b[0]) : a[1] - b[1]);
+          const wordPos_ = lqData.wordPos?.[effectiveLang] || {};
+          const POS_ORDER = ['noun', 'verb', 'adjective', 'adverb', 'pronoun', 'preposition', 'conjunction', 'article', 'other', 'unknown'];
+          let modalBody;
+          if (isKnownModal) {
+            const groups = {};
+            for (const [w] of entries) {
+              const pos = wordPos_[w] || 'unknown';
+              if (!groups[pos]) groups[pos] = [];
+              groups[pos].push(w);
+            }
+            const sortedGroups = POS_ORDER.filter(p => groups[p])
+              .concat(Object.keys(groups).filter(p => !POS_ORDER.includes(p)));
+            modalBody = entries.length === 0
+              ? <p style={{color:'var(--text-muted)',fontSize:'14px',marginTop:'12px'}}>No words yet.</p>
+              : (
+                <div style={{maxHeight:'460px',overflowY:'auto',paddingTop:'4px'}}>
+                  {sortedGroups.map(pos => (
+                    <div key={pos} className="lq-pos-group">
+                      <div className="lq-pos-toggle" onClick={() => setPosOpen(o => ({...o, [pos]: !o[pos]}))}>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                          <span className={`lq-pos-chevron${posOpen[pos] ? ' open' : ''}`}>▶</span>
+                          <span className="lq-pos-label">{pos}</span>
+                        </div>
+                        <span className="lq-pos-count">{groups[pos].length}</span>
+                      </div>
+                      {posOpen[pos] && (
+                        <div className="lq-pos-body">
+                          {groups[pos].map(w => (
+                            <div key={w} className="lq-word-list-item"><span>{w}</span></div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+          } else {
+            modalBody = entries.length === 0
+              ? <p style={{color:'var(--text-muted)',fontSize:'14px',marginTop:'12px'}}>No words yet.</p>
+              : (
+                <div className="lq-word-list" style={{maxHeight:'380px',overflowY:'auto'}}>
+                  {entries.map(([w, s]) => (
+                    <div key={w} className="lq-word-list-item">
+                      <span>{w}</span>
+                      <span className="lq-wl-stage" data-s={s}>S{s}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+          }
+          return (
+            <div className="modal-overlay" onClick={() => setStatsModal(null)}>
+              <div className="modal" style={{maxWidth:500}} onClick={e => e.stopPropagation()}>
+                <div className="modal-title">{isKnownModal ? '✓ Known Words' : '◐ Learning Words'} — {entries.length}</div>
+                {modalBody}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'20px'}}>
+                  {!isKnownModal && entries.length > 0 ? (
+                    <button className="btn btn-primary" onClick={() => {
+                      const cards = buildStudyCards(effectiveLang);
+                      if (cards.length === 0) return;
+                      setStudyCards(cards);
+                      setStudyIdx(0);
+                      setStudyMode(null);
+                      setStudyFlipped(false);
+                      setStudyAnswer(null);
+                      setStudyScore({ correct: 0, total: 0 });
+                      studyFetchRef.current = null;
+                      setStatsModal(null);
+                      setView('study');
+                    }}>Study ▶</button>
+                  ) : <span />}
+                  <button className="btn btn-ghost" onClick={() => setStatsModal(null)}>Close</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {showImport && (
+          <div className="modal-overlay" onClick={() => { if (!translating) setShowImport(false); }}>
+            <div className="modal" style={{maxWidth:520}} onClick={e => e.stopPropagation()}>
+              <div className="modal-title">Import</div>
+              <div className="lq-import-form">
+                <div style={{background:'var(--bg-tertiary)',borderRadius:'8px',padding:'12px 14px'}}>
+                  <label style={{fontSize:'12px',color:'var(--text-muted)',display:'block',marginBottom:'6px'}}>Import from URL <span style={{color:'var(--text-muted)',fontWeight:400}}>(YouTube or web article)</span></label>
+                  <div style={{display:'flex',gap:'8px'}}>
+                    <input className="input" value={importUrl} onChange={e => setImportUrl(e.target.value)} placeholder="https://youtube.com/watch?v=… or any article URL" style={{flex:1}} disabled={translating || urlFetching} onKeyDown={e => { if (e.key === 'Enter' && importUrl.trim()) fetchFromUrl(); }} />
+                    <button className="btn btn-primary" onClick={fetchFromUrl} disabled={!importUrl.trim() || translating || urlFetching} style={{whiteSpace:'nowrap'}}>
+                      {urlFetching ? 'Fetching…' : 'Fetch'}
+                    </button>
+                  </div>
+                  {urlError && <div style={{fontSize:'12px',color:'#ef4444',marginTop:'6px'}}>{urlError}</div>}
+                </div>
+                <div style={{background:'var(--bg-tertiary)',borderRadius:'8px',padding:'12px 14px'}}>
+                  <label style={{fontSize:'12px',color:'var(--text-muted)',display:'block',marginBottom:'6px'}}>Upload audio <span style={{color:'var(--text-muted)',fontWeight:400}}>(mp3 or wav — transcribed via Whisper)</span></label>
+                  <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                    <input type="file" accept=".mp3,.wav,audio/mpeg,audio/wav" onChange={e => { if (e.target.files[0]) uploadAudio(e.target.files[0]); e.target.value=''; }} disabled={audioUploading || translating} style={{fontSize:'13px',color:'var(--text-secondary)',flex:1}} />
+                  </div>
+                  {audioUploadStatus && <div style={{fontSize:'12px',color:'var(--accent)',marginTop:'6px'}}>{audioUploadStatus}</div>}
+                </div>
+                <div style={{textAlign:'center',fontSize:'12px',color:'var(--text-muted)',padding:'2px 0'}}>— or paste text manually —</div>
+                <div>
+                  <label style={{fontSize:'12px',color:'var(--text-muted)',display:'block',marginBottom:'6px'}}>Title</label>
+                  <input className="input" value={importTitle} onChange={e => setImportTitle(e.target.value)} placeholder="e.g. Le Petit Prince – Chapter 1" style={{width:'100%'}} disabled={translating} />
+                </div>
+                <div>
+                  <label style={{fontSize:'12px',color:'var(--text-muted)',display:'block',marginBottom:'6px'}}>Language</label>
+                  <select className="lq-lang-select" value={importLang} onChange={e => setImportLang(e.target.value)} disabled={translating}>
+                    {SOURCE_LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{fontSize:'12px',color:'var(--text-muted)',display:'block',marginBottom:'6px'}}>Paste your text</label>
+                  <textarea className="lq-import-textarea" value={importContent} onChange={e => setImportContent(e.target.value)} placeholder="Paste any text in your target language here…" disabled={translating} />
+                </div>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',background:'var(--bg-tertiary)',borderRadius:'8px',gap:'12px'}}>
+                  <div>
+                    <div style={{fontSize:'13px',fontWeight:600,marginBottom:'3px'}}>Auto-translate</div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                      {importTargets.length > 0
+                        ? 'Will also create: ' + importTargets.map(c => LANG_OPTIONS.find(l => l.code === c)?.label).join(' · ')
+                        : importLang === 'en' ? 'Select a language above' : 'Nothing to translate'
+                      }
+                    </div>
+                  </div>
+                  <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',flexShrink:0}}>
+                    <input type="checkbox" checked={autoTranslate} onChange={e => setAutoTranslate(e.target.checked)} disabled={translating} style={{width:16,height:16,cursor:'pointer'}} />
+                    <span style={{fontSize:'13px',color:'var(--text-secondary)'}}>On</span>
+                  </label>
+                </div>
+                {translating && (
+                  <div style={{textAlign:'center',padding:'10px',color:'var(--accent)',fontSize:'13px',fontWeight:500}}>
+                    Translating… this may take a moment
+                  </div>
+                )}
+                <div className="modal-actions">
+                  <button className="btn btn-ghost" onClick={() => setShowImport(false)} disabled={translating}>Cancel</button>
+                  <button className="btn btn-primary" onClick={addText} disabled={!importTitle.trim() || !importContent.trim() || translating}>
+                    {translating ? 'Importing…' : 'Import'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="lq-story-gen">
+            <div className="lq-story-gen-header">
+              <div className="lq-story-gen-title">Story Generator</div>
+              <div className="lq-story-gen-desc">Generate a story{learningCount > 0 ? ' using your learning words' : ' at your level'}</div>
+            </div>
+            <div className="lq-story-gen-controls" style={{flexDirection:'column',alignItems:'stretch'}}>
+              {learningCount > 0 && (
+              <div className="lq-story-gen-slider-row">
+                <label className="lq-story-gen-label">Words to include: {Math.round(learningCount * storyPct / 100)} of {learningCount} ({storyPct}%){storyPct === 0 ? ' — general story, no vocab' : ''}</label>
+                <input type="range" min="0" max="100" step="5" value={storyPct} onChange={e => setStoryPct(parseInt(e.target.value))} className="lq-story-slider" />
+              </div>
+              )}
+              <div className="lq-story-gen-slider-row">
+                <label className="lq-story-gen-label">Story length: {['Short (50–100 words)','Medium (150–250 words)','Long (300–500 words)'][storyLength]}</label>
+                <input type="range" min="0" max="2" step="1" value={storyLength} onChange={e => setStoryLength(parseInt(e.target.value))} className="lq-story-slider" />
+              </div>
+              <div className="lq-story-gen-slider-row">
+                <label className="lq-story-gen-label">CEFR Level: {['A1 — Beginner','A2 — Elementary','B1 — Intermediate','B2 — Upper Intermediate','C1 — Advanced','C2 — Proficient'][storyCEFR]}</label>
+                <input type="range" min="0" max="5" step="1" value={storyCEFR} onChange={e => setStoryCEFR(parseInt(e.target.value))} className="lq-story-slider" />
+              </div>
+              <button className="lq-story-gen-btn" onClick={generateStory} disabled={storyGenerating} style={{alignSelf:'flex-start'}}>
+                {storyGenerating ? 'Generating…' : 'Generate Story'}
+              </button>
+            </div>
+            {storyGenerating && storyStatus && (
+              <div className="lq-story-gen-status">
+                <span className="lq-story-gen-spinner"></span>
+                <span>{storyStatus}</span>
+                <span className="lq-story-gen-timer">{storyElapsed}s</span>
+              </div>
+            )}
+            {storyError && <div className="lq-story-gen-error">{storyError}</div>}
+          </div>
+
+        <div className="lq-library-tabs">
+          <button className={'lq-library-tab' + (libraryTab === 'imported' ? ' lq-library-tab-active' : '')} onClick={() => setLibraryTab('imported')}>
+            Imported ({filteredTexts.filter(t => !t.generated).length})
+          </button>
+          <button className={'lq-library-tab' + (libraryTab === 'generated' ? ' lq-library-tab-active' : '')} onClick={() => setLibraryTab('generated')}>
+            Generated ({filteredTexts.filter(t => t.generated).length})
+          </button>
+        </div>
+
+        {(() => {
+          const tabTexts = filteredTexts.filter(t => libraryTab === 'generated' ? t.generated : !t.generated);
+          return tabTexts.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">{I.reader}</div>
+            <div className="empty-state-title">{libraryTab === 'generated' ? 'No generated stories yet' : 'No texts yet'}</div>
+            <div className="empty-state-body">{libraryTab === 'generated' ? 'Use the Story Generator above to create stories from your learning words.' : 'Import any text — an article, book chapter, song lyrics — and start reading word by word to build your vocabulary.'}</div>
+            {libraryTab === 'imported' && <button className="lq-import-btn" style={{margin:'0 auto'}} onClick={() => setShowImport(true)}>{I.plus} Import</button>}
+          </div>
+        ) : (
+          <div className="lq-library">
+            {tabTexts.map(text => {
+              const lang = LANG_OPTIONS.find(l => l.code === text.language) || LANG_OPTIONS[0];
+              const wordCount = tokenizeText(text.content).filter(t => t.type === 'word').length;
+              return (
+                <div key={text.id} className="lq-text-card" onClick={() => { setActiveTextId(text.id); setReaderPage(0); setView('reader'); }}>
+                  <div className="lq-text-card-header">
+                    <div className="lq-text-card-title">{text.title}</div>
+                    <div className="lq-text-card-lang">{lang.label}</div>
+                  </div>
+                  <div className="lq-text-card-preview">{text.content.slice(0, 150)}{text.content.length > 150 ? '…' : ''}</div>
+                  <div className="lq-text-card-footer">
+                    <span className="lq-text-card-wordcount">{wordCount.toLocaleString()} words</span>
+                    <span className="lq-text-card-time">{timeAgo(text.addedAt)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+        })()}
+      </div>
+    );
+  }
+
+  // ── READER VIEW ──────────────────────────────────────────────
+
+  if (view === 'reader' && activeText) {
+    const lang      = LANG_OPTIONS.find(l => l.code === activeText.language) || LANG_OPTIONS[0];
+    const ytId      = extractYouTubeId(activeText.sourceUrl);
+    const audioFile = activeText.sourceUrl && activeText.sourceUrl.startsWith('audio:') ? activeText.sourceUrl.slice(6) : null;
+    const hasMedia  = !!(ytId || audioFile);
+    if (!bgTranslateRef.current || bgTranslateRef.current.textId !== activeText.id) {
+      const ctx = { cancelled: false, textId: activeText.id };
+      if (bgTranslateRef.current) bgTranslateRef.current.cancelled = true;
+      bgTranslateRef.current = ctx;
+      const langOpt = lang;
+      const tokens_ = tokenizeText(activeText.content);
+      const unique_ = [...new Set(tokens_.filter(t => t.type === 'word').map(t => t.key))];
+      (async () => {
+        for (const word of unique_) {
+          if (ctx.cancelled) return;
+          const f = lqDataRef.current;
+          const wt = f.wordTranslations?.[langOpt.code] || {};
+          if (wt[word] && !isBadTranslation(wt[word])) continue;
+          const tr = await fetchTranslation(word, langOpt.apiCode);
+          if (ctx.cancelled) return;
+          if (tr && tr !== '(unavailable)') {
+            const f2 = lqDataRef.current;
+            const wtU = { ...(f2.wordTranslations || {}), [langOpt.code]: { ...(f2.wordTranslations?.[langOpt.code] || {}), [word]: tr } };
+            saveLqData({ ...f2, wordTranslations: wtU });
+          }
+          await new Promise(r => setTimeout(r, 120));
+        }
+      })();
+    }
+    const allTokens = tokenizeText(activeText.content);
+    const pages     = paginateTokens(allTokens);
+    const safePage  = Math.min(readerPage, pages.length - 1);
+    const pageTokens = pages[safePage] || [];
+    const readerWS  = wordStatus[lang.code] || {};
+    const isLast    = safePage === pages.length - 1;
+
+    // Build phrase highlight map: token index → { key, status, from, to } for learning phrases
+    const phraseHighlight = {};
+    phraseHighlightRef.current = phraseHighlight;
+    const learningPhrases = Object.entries(readerWS)
+      .filter(([k, s]) => k.includes(' ') && s >= 1 && s <= 4);
+    if (learningPhrases.length > 0) {
+      const wordIndices = [];
+      for (let ti = 0; ti < pageTokens.length; ti++) {
+        if (pageTokens[ti].type === 'word') wordIndices.push(ti);
+      }
+      for (const [phraseKey, phraseStatus] of learningPhrases) {
+        const phraseWords = phraseKey.split(/\s+/);
+        for (let wi = 0; wi <= wordIndices.length - phraseWords.length; wi++) {
+          let match = true;
+          for (let pw = 0; pw < phraseWords.length; pw++) {
+            if (pageTokens[wordIndices[wi + pw]].key !== phraseWords[pw]) { match = false; break; }
+          }
+          if (match) {
+            const from = wordIndices[wi];
+            const to = wordIndices[wi + phraseWords.length - 1];
+            for (let ti = from; ti <= to; ti++) {
+              if (!phraseHighlight[ti] || phraseStatus < phraseHighlight[ti].status) {
+                phraseHighlight[ti] = { key: phraseKey, status: phraseStatus, from, to };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return (
+      <div className={`lq-page${hasMedia ? ' lq-page-with-media' : ''}`} onPointerDown={() => setPopup(null)}>
+
+        <div className="lq-reader-header">
+          <button className="lq-back-btn" onClick={() => { setView('library'); setPopup(null); setReaderPage(0); touchSelRef.current = null; setTouchSel(null); }}>← Library</button>
+          <div className="lq-reader-title">{activeText.title}</div>
+          <div className="lq-reader-lang-badge">{lang.label}</div>
+          {ytId && (
+            <button className="lq-yt-toggle" onClick={() => setVideoHidden(h => !h)} title={videoHidden ? 'Show video (audio is still playing)' : 'Hide video (audio keeps playing)'}>
+              {videoHidden ? 'Show video' : 'Hide video'}
+            </button>
+          )}
+          {audioFile && (
+            <button className="lq-yt-toggle" onClick={() => setAudioHidden(h => !h)} title={audioHidden ? 'Show audio player' : 'Hide audio player'}>
+              {audioHidden ? 'Show audio' : 'Hide audio'}
+            </button>
+          )}
+          <button className="lq-delete-btn" onClick={() => { if (window.confirm('Delete this text?')) deleteText(activeText.id); }}>Delete</button>
+        </div>
+
+        <div className="lq-reader-body"
+          onPointerMove={handleReaderPointerMove}
+          onPointerUp={e => handleReaderPointerUp(e, pageTokens, lang)}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={e => handleTouchEnd(e, pageTokens, lang)}
+        >
+          {pageTokens.map((token, i) => {
+            const ph = phraseHighlight[i];
+            const isDragSel  = dragSel !== null && i >= Math.min(dragSel.start, dragSel.end) && i <= Math.max(dragSel.start, dragSel.end);
+            const isTouchSel = touchSel !== null && i >= Math.min(touchSel.start, touchSel.end) && i <= Math.max(touchSel.start, touchSel.end);
+            const isSel = isDragSel || isTouchSel;
+
+            if (token.type === 'punct') {
+              // Punctuation inside a phrase range gets highlighted as part of the phrase
+              if (ph) {
+                const isFirst = i === ph.from;
+                const isLast  = i === ph.to;
+                return (
+                  <span key={i} data-widx={i}
+                    className={`lq-word-phrase-span${isFirst ? ' lq-phrase-first' : ''}${isLast ? ' lq-phrase-last' : ''}${isSel ? ' lq-word-sel' : ''}`}
+                    data-status={ph.status}
+                    onClick={e => { e.stopPropagation(); openPhrasePopup(e.clientX, e.clientY, ph.key, pageTokens, ph.from, ph.to, lang); }}
+                    onPointerDown={e => { if (e.pointerType !== 'touch') e.stopPropagation(); }}
+                  >{token.raw}</span>
+                );
+              }
+              if (token.raw.includes('\n')) {
+                const parts = token.raw.split('\n');
+                return parts.map((part, j) => (
+                  <React.Fragment key={`${i}-${j}`}>
+                    {part}{j < parts.length - 1 && <br />}
+                  </React.Fragment>
+                ));
+              }
+              return <span key={i}>{token.raw}</span>;
+            }
+            const wordSt = readerWS[token.key] ?? 0;
+            // Show phrase learning highlight if word is part of a learning phrase
+            const displaySt = (ph && (wordSt === 5 || wordSt === -1 || wordSt === 0)) ? ph.status : wordSt;
+            const isFirst = ph && i === ph.from;
+            const isLast  = ph && i === ph.to;
+            return (
+              <span
+                key={i}
+                data-widx={i}
+                className={`lq-word${isSel ? ' lq-word-sel' : ''}${ph ? ` lq-word-phrase-span${isFirst ? ' lq-phrase-first' : ''}${isLast ? ' lq-phrase-last' : ''}` : ''}`}
+                data-status={displaySt === 5 || displaySt === -1 ? undefined : displaySt}
+                onPointerDown={e => {
+                  if (ph && e.pointerType !== 'touch') {
+                    // Clicking a phrase-highlighted word opens the phrase popup
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openPhrasePopup(e.clientX, e.clientY, ph.key, pageTokens, ph.from, ph.to, lang);
+                    return;
+                  }
+                  handleWordPointerDown(e, i);
+                }}
+              >{token.raw}</span>
+            );
+          })}
+        </div>
+
+        {touchSel && (
+          <div className="lq-sel-bar" onTouchStart={e => e.stopPropagation()}>
+            <button className="lq-sel-arrow" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); expandSelLeft(pageTokens); }} onClick={() => expandSelLeft(pageTokens)}>
+              ← add
+            </button>
+            <button className="lq-sel-arrow lq-sel-arrow-shrink" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); shrinkSelRight(pageTokens); }} onClick={() => shrinkSelRight(pageTokens)} disabled={touchSel && Math.min(touchSel.start, touchSel.end) === Math.max(touchSel.start, touchSel.end)}>
+              remove →
+            </button>
+            <button className="lq-sel-translate-btn" onPointerDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); translateTouchSel(pageTokens, lang); }}>
+              Translate
+            </button>
+            <button className="lq-sel-arrow lq-sel-arrow-shrink" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); shrinkSelLeft(pageTokens); }} onClick={() => shrinkSelLeft(pageTokens)} disabled={touchSel && Math.min(touchSel.start, touchSel.end) === Math.max(touchSel.start, touchSel.end)}>
+              ← remove
+            </button>
+            <button className="lq-sel-arrow" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); expandSelRight(pageTokens); }} onClick={() => expandSelRight(pageTokens)}>
+              add →
+            </button>
+          </div>
+        )}
+
+        <div className="lq-reader-nav">
+          <button
+            className="lq-nav-btn"
+            disabled={safePage === 0}
+            onClick={() => { setPopup(null); setReaderPage(p => p - 1); touchSelRef.current = null; setTouchSel(null); }}
+          >← Previous</button>
+          <span className="lq-reader-page-info">Page {safePage + 1} of {pages.length}</span>
+          <button
+            className="lq-nav-btn lq-nav-next"
+            onClick={() => {
+              touchSelRef.current = null; setTouchSel(null);
+              if (isLast) {
+                advancePage(pageTokens, lang.code);
+                setReaderPage(0);
+                setView('library');
+              } else {
+                advancePage(pageTokens, lang.code);
+              }
+            }}
+          >{isLast ? 'Finish ✓' : 'Next →'}</button>
+        </div>
+
+        {popup && (
+          <div className="lq-popup" style={{top: popup.y, left: popup.x}} onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+            <button className="lq-popup-close" onClick={() => setPopup(null)}>×</button>
+            <div className="lq-popup-word">
+              {popup.word}
+              <button className="lq-popup-audio-btn" title="Pronounce" onClick={() => speakInLang(popup.word, popup.langOption.speechLang)}>🔊</button>
+            </div>
+            <hr className="lq-popup-divider" />
+            <div className={`lq-popup-translation ${popup.loading ? 'lq-loading' : ''}`}>
+              {popup.loading ? 'Translating…' : popup.translation}
+            </div>
+            {popup.key && (
+              <>
+                <div className="lq-popup-section-label">Learning stage</div>
+                <div className="lq-popup-stages">
+                  {[1,2,3,4].map(s => (
+                    <button
+                      key={s}
+                      className={`lq-stage-btn ${popup.status === s ? 'lq-stage-active' : ''}`}
+                      data-s={s}
+                      onClick={() => updateWord(popup.key, s, lang.code)}
+                    >{s}</button>
+                  ))}
+                </div>
+                <button className="lq-popup-known-btn" onClick={() => {
+                  if (popup.isPhrase && popup.childKeys) {
+                    // Mark phrase as known (remove from learning) and mark individual words as known if not already
+                    const langWS = wordStatus[lang.code] || {};
+                    const updates = { [popup.key]: 5 };
+                    popup.childKeys.forEach(k => {
+                      if ((langWS[k] ?? 0) !== 5) updates[k] = 5;
+                    });
+                    setWS(lang.code, updates);
+                  } else {
+                    updateWord(popup.key, 5, lang.code);
+                  }
+                  setPopup(null);
+                }}>
+                  ✓ I Know This{popup.isPhrase ? ' (+ words)' : ''}
+                </button>
+                {!popup.isPhrase && (
+                  <button
+                    className={'lq-popup-ignore-btn' + (popup.status === -1 ? ' lq-ignored' : '')}
+                    onClick={() => { updateWord(popup.key, popup.status === -1 ? 0 : -1, lang.code); if (popup.status !== -1) setPopup(null); }}
+                  >
+                    {popup.status === -1 ? '↩ Unignore' : '✕ Ignore (not a real word)'}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {ytId && (
+          <div className="lq-media-wrap" style={{display: videoHidden ? 'none' : 'block'}}>
+            <iframe
+              key="lq-yt-iframe"
+              className="lq-yt-iframe"
+              src={`https://www.youtube.com/embed/${ytId}`}
+              title="YouTube video"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+        )}
+        {audioFile && (
+          <div className="lq-media-wrap lq-audio-wrap" style={{display: audioHidden ? 'none' : 'block'}}>
+            <audio
+              key="lq-audio-player"
+              className="lq-audio-player"
+              controls
+              src={`/api/audio/${encodeURIComponent(audioFile)}`}
+              preload="metadata"
+            />
+          </div>
+        )}
+
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function App() {
+  return (
+    <div className="main">
+      <LingQPage />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
