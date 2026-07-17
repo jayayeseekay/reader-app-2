@@ -1319,7 +1319,9 @@ function LingQPage() {
     const now     = new Date().toISOString();
     const toAdd   = [];
 
-    const srcUrl = importSourceUrl || '';
+    // Use a fetched source if present; otherwise, if a YouTube link was pasted
+    // in the URL box, embed that video directly (no fetching needed).
+    const srcUrl = importSourceUrl || (extractYouTubeId(importUrl.trim()) ? importUrl.trim() : '');
     if (importLang !== 'en') {
       toAdd.push({ id: 'txt-' + Date.now(), title, language: importLang, content, addedAt: now, sourceUrl: srcUrl });
     }
