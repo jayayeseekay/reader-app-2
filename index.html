@@ -452,6 +452,15 @@
     .lq-reader-header { gap: 8px; }
     .lq-reader-title { font-size: 15px; }
     .lq-mcq-options { grid-template-columns: 1fr !important; }
+
+    /* Reader with video/audio on mobile: let the page scroll naturally and pin
+       the media to the bottom of the screen so it's always visible while reading.
+       Avoids sizing anything to viewport height (which jumps as the URL bar moves). */
+    .lq-page-with-media { display: block; height: auto; max-height: none; overflow: visible; }
+    .lq-page-with-media .lq-reader-body { flex: none; height: auto; max-height: none; overflow: visible; }
+    .lq-page-with-media .lq-media-wrap { position: sticky; bottom: 0; flex: none; height: auto; z-index: 5; }
+    .lq-page-with-media .lq-yt-iframe { height: auto; aspect-ratio: 16 / 9; }
+    .lq-page-with-media .lq-audio-wrap { position: sticky; bottom: 0; }
   }
 </style>
 </head>
@@ -685,7 +694,8 @@ function LingQPage() {
   const langWS        = wordStatus[effectiveLang] || {};
   const knownCount    = Object.values(langWS).filter(s => s === 5).length;
   const learningCount = Object.values(langWS).filter(s => s >= 1 && s <= 4).length;
-  const filteredTexts = multiLang ? texts.filter(t => t.language === effectiveLang) : texts;
+  const filteredTexts = (multiLang ? texts.filter(t => t.language === effectiveLang) : texts.slice())
+    .sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));  // newest first
   const activeText    = texts.find(t => t.id === activeTextId) || null;
 
   function setWS(langCode, updates) {
