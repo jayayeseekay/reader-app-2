@@ -227,6 +227,26 @@
   .lq-yt-iframe { width: 100%; height: 100%; display: block; border: 0; }
   .lq-audio-wrap { flex: 0 0 auto; height: auto; background: var(--bg-tertiary); padding: 12px 16px; }
   .lq-audio-player { width: 100%; height: 40px; }
+  /* Spotify embed: fixed player height, not a 16:9 video box */
+  .lq-spotify-wrap { height: auto; background: transparent; border-top: none; }
+  .lq-spotify-iframe { width: 100%; height: 172px; display: block; border: 0; border-radius: 12px; }
+
+  /* ── Reading / Listening mode switch ── */
+  .lq-mode-switch { display: flex; gap: 4px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 9px; padding: 3px; flex-shrink: 0; }
+  .lq-mode-btn { background: transparent; border: 0; border-radius: 7px; padding: 6px 11px; color: var(--text-muted); font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; transition: all var(--transition); }
+  .lq-mode-btn:hover { color: var(--text-primary); }
+  .lq-mode-btn.lq-mode-active { background: var(--accent); color: #fff; }
+
+  /* ── Listening mode: media pinned TOP, whole text scrolls below ──
+     Achieved with flex `order` (not by moving the DOM node), so the player
+     never remounts and playback survives switching modes. */
+  .lq-listening.lq-page-with-media { display: flex; flex-direction: column; }
+  .lq-listening .lq-reader-header { order: -2; }
+  .lq-listening .lq-media-wrap    { order: -1; margin-top: 0; margin-bottom: 8px; border-top: none; border-bottom: 1px solid var(--border); z-index: 6; }
+  .lq-listening .lq-reader-body   { order: 0; }
+  .lq-listening .lq-listen-foot   { order: 1; }
+  .lq-listening .lq-media-wrap:not(.lq-spotify-wrap):not(.lq-audio-wrap) { height: 30vh; height: 30dvh; }
+  .lq-listen-foot { flex-shrink: 0; padding: 10px 16px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); background: var(--bg-secondary); text-align: center; }
   .lq-yt-toggle { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit; transition: all var(--transition); flex-shrink: 0; }
   .lq-yt-toggle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
@@ -461,6 +481,13 @@
     .lq-page-with-media .lq-media-wrap { position: sticky; bottom: 0; flex: none; height: auto; z-index: 5; }
     .lq-page-with-media .lq-yt-iframe { height: auto; aspect-ratio: 16 / 9; }
     .lq-page-with-media .lq-audio-wrap { position: sticky; bottom: 0; }
+    /* Listening on mobile: keep flex so `order` still applies (the rule above
+       switches .lq-page-with-media to display:block, which would kill it), and
+       stick the player to the TOP while the text scrolls under it. */
+    .lq-listening.lq-page-with-media { display: flex; flex-direction: column; height: auto; max-height: none; overflow: visible; }
+    .lq-listening.lq-page-with-media .lq-media-wrap,
+    .lq-listening.lq-page-with-media .lq-audio-wrap { position: sticky; top: 0; bottom: auto; z-index: 6; }
+    .lq-listening.lq-page-with-media .lq-media-wrap:not(.lq-spotify-wrap):not(.lq-audio-wrap) { height: auto; }
   }
 </style>
 </head>
@@ -518,6 +545,17 @@ function extractYouTubeId(url) {
     if (m) return m[1];
   }
   return null;
+}
+
+// ── Spotify helpers ──────────────────────────────────────────────
+// Accepts episode/show/playlist links, incl. locale-prefixed ones like
+// https://open.spotify.com/intl-de/episode/xxxx  and spotify:episode:xxxx URIs.
+function extractSpotify(url) {
+  if (!url) return null;
+  const m = url.match(/open\.spotify\.com\/(?:intl-[a-z]{2,5}\/)?(episode|show|playlist|track|album)\/([A-Za-z0-9]+)/)
+         || url.match(/^spotify:(episode|show|playlist|track|album):([A-Za-z0-9]+)/);
+  if (!m) return null;
+  return { type: m[1], id: m[2] };
 }
 
 // ── Time helpers ─────────────────────────────────────────────────
@@ -633,6 +671,10 @@ function LingQPage() {
   const [importUrl, setImportUrl]       = useState('');
   const [importSourceUrl, setImportSourceUrl] = useState('');
   const [videoHidden, setVideoHidden]   = useState(false);
+  // 'reading'  = paginated; advancing a page marks remaining blue words known.
+  // 'listening'= whole text on one scroll page, media pinned top, NOTHING is
+  //              ever auto-marked — you only tap a word if you want it.
+  const [readerMode, setReaderMode]     = useState('reading');
   const [urlFetching, setUrlFetching]   = useState(false);
   const [urlError, setUrlError]         = useState('');
   const [audioUploading, setAudioUploading] = useState(false);
@@ -1329,9 +1371,12 @@ function LingQPage() {
     const now     = new Date().toISOString();
     const toAdd   = [];
 
-    // Use a fetched source if present; otherwise, if a YouTube link was pasted
-    // in the URL box, embed that video directly (no fetching needed).
-    const srcUrl = importSourceUrl || (extractYouTubeId(importUrl.trim()) ? importUrl.trim() : '');
+    // Use a fetched source if present; otherwise, if a YouTube or Spotify link
+    // was pasted in the URL box, embed that player directly (no fetching needed).
+    // NOTE: Spotify exposes no transcript, so for Spotify imports you must paste
+    // the transcript text yourself — the link only provides the player.
+    const srcUrl = importSourceUrl
+      || ((extractYouTubeId(importUrl.trim()) || extractSpotify(importUrl.trim())) ? importUrl.trim() : '');
     if (importLang !== 'en') {
       toAdd.push({ id: 'txt-' + Date.now(), title, language: importLang, content, addedAt: now, sourceUrl: srcUrl });
     }
@@ -2128,8 +2173,10 @@ function LingQPage() {
   if (view === 'reader' && activeText) {
     const lang      = LANG_OPTIONS.find(l => l.code === activeText.language) || LANG_OPTIONS[0];
     const ytId      = extractYouTubeId(activeText.sourceUrl);
+    const spotify   = extractSpotify(activeText.sourceUrl);
     const audioFile = activeText.sourceUrl && activeText.sourceUrl.startsWith('audio:') ? activeText.sourceUrl.slice(6) : null;
-    const hasMedia  = !!(ytId || audioFile);
+    const hasMedia  = !!(ytId || audioFile || spotify);
+    const listening = readerMode === 'listening';
     if (!bgTranslateRef.current || bgTranslateRef.current.textId !== activeText.id) {
       const ctx = { cancelled: false, textId: activeText.id };
       if (bgTranslateRef.current) bgTranslateRef.current.cancelled = true;
@@ -2160,6 +2207,9 @@ function LingQPage() {
     const pageTokens = pages[safePage] || [];
     const readerWS  = wordStatus[lang.code] || {};
     const isLast    = safePage === pages.length - 1;
+    // Listening mode shows the ENTIRE text as one scrollable page; Reading mode
+    // shows the current 45-word page. Everything below renders viewTokens.
+    const viewTokens = listening ? allTokens : pageTokens;
 
     // Build phrase highlight map: token index → { key, status, from, to } for learning phrases
     const phraseHighlight = {};
@@ -2168,15 +2218,15 @@ function LingQPage() {
       .filter(([k, s]) => k.includes(' ') && s >= 1 && s <= 4);
     if (learningPhrases.length > 0) {
       const wordIndices = [];
-      for (let ti = 0; ti < pageTokens.length; ti++) {
-        if (pageTokens[ti].type === 'word') wordIndices.push(ti);
+      for (let ti = 0; ti < viewTokens.length; ti++) {
+        if (viewTokens[ti].type === 'word') wordIndices.push(ti);
       }
       for (const [phraseKey, phraseStatus] of learningPhrases) {
         const phraseWords = phraseKey.split(/\s+/);
         for (let wi = 0; wi <= wordIndices.length - phraseWords.length; wi++) {
           let match = true;
           for (let pw = 0; pw < phraseWords.length; pw++) {
-            if (pageTokens[wordIndices[wi + pw]].key !== phraseWords[pw]) { match = false; break; }
+            if (viewTokens[wordIndices[wi + pw]].key !== phraseWords[pw]) { match = false; break; }
           }
           if (match) {
             const from = wordIndices[wi];
@@ -2191,16 +2241,73 @@ function LingQPage() {
       }
     }
 
+    // Media player. Rendered at the TOP in Listening mode, at the bottom in
+    // Reading mode. Same element either way so playback isn't interrupted by
+    // scrolling; note switching modes remounts it and restarts playback.
+    const mediaBlock = (
+      <React.Fragment>
+        {ytId && (
+          <div className="lq-media-wrap" style={{display: videoHidden ? 'none' : 'block'}}>
+            <iframe
+              key="lq-yt-iframe"
+              className="lq-yt-iframe"
+              src={`https://www.youtube.com/embed/${ytId}`}
+              title="YouTube video"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+        )}
+        {spotify && (
+          <div className="lq-media-wrap lq-spotify-wrap" style={{display: videoHidden ? 'none' : 'block'}}>
+            <iframe
+              key="lq-spotify-iframe"
+              className="lq-spotify-iframe"
+              src={`https://open.spotify.com/embed/${spotify.type}/${spotify.id}`}
+              title="Spotify player"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+            />
+          </div>
+        )}
+        {audioFile && (
+          <div className="lq-media-wrap lq-audio-wrap" style={{display: audioHidden ? 'none' : 'block'}}>
+            <audio
+              key="lq-audio-player"
+              className="lq-audio-player"
+              controls
+              src={`/api/audio/${encodeURIComponent(audioFile)}`}
+              preload="metadata"
+            />
+          </div>
+        )}
+      </React.Fragment>
+    );
+
     return (
-      <div className={`lq-page${hasMedia ? ' lq-page-with-media' : ''}`} onPointerDown={() => setPopup(null)}>
+      <div className={`lq-page${hasMedia ? ' lq-page-with-media' : ''}${listening ? ' lq-listening' : ''}`} onPointerDown={() => setPopup(null)}>
 
         <div className="lq-reader-header">
           <button className="lq-back-btn" onClick={() => { setView('library'); setPopup(null); setReaderPage(0); touchSelRef.current = null; setTouchSel(null); }}>← Library</button>
           <div className="lq-reader-title">{activeText.title}</div>
           <div className="lq-reader-lang-badge">{lang.label}</div>
-          {ytId && (
-            <button className="lq-yt-toggle" onClick={() => setVideoHidden(h => !h)} title={videoHidden ? 'Show video (audio is still playing)' : 'Hide video (audio keeps playing)'}>
-              {videoHidden ? 'Show video' : 'Hide video'}
+          <div className="lq-mode-switch" onPointerDown={e => e.stopPropagation()}>
+            <button
+              className={`lq-mode-btn${!listening ? ' lq-mode-active' : ''}`}
+              onClick={() => { setReaderMode('reading'); setPopup(null); touchSelRef.current = null; setTouchSel(null); }}
+              title="Reading: paged. Moving to the next page marks remaining blue words as known."
+            >📖 Reading</button>
+            <button
+              className={`lq-mode-btn${listening ? ' lq-mode-active' : ''}`}
+              onClick={() => { setReaderMode('listening'); setPopup(null); touchSelRef.current = null; setTouchSel(null); }}
+              title="Listening: whole text on one scroll, media on top, nothing is ever auto-marked."
+            >🎧 Listening</button>
+          </div>
+          {(ytId || spotify) && (
+            <button className="lq-yt-toggle" onClick={() => setVideoHidden(h => !h)} title={videoHidden ? 'Show player (audio is still playing)' : 'Hide player (audio keeps playing)'}>
+              {videoHidden ? (spotify && !ytId ? 'Show player' : 'Show video') : (spotify && !ytId ? 'Hide player' : 'Hide video')}
             </button>
           )}
           {audioFile && (
@@ -2213,12 +2320,12 @@ function LingQPage() {
 
         <div className="lq-reader-body"
           onPointerMove={handleReaderPointerMove}
-          onPointerUp={e => handleReaderPointerUp(e, pageTokens, lang)}
+          onPointerUp={e => handleReaderPointerUp(e, viewTokens, lang)}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          onTouchEnd={e => handleTouchEnd(e, pageTokens, lang)}
+          onTouchEnd={e => handleTouchEnd(e, viewTokens, lang)}
         >
-          {pageTokens.map((token, i) => {
+          {viewTokens.map((token, i) => {
             const ph = phraseHighlight[i];
             const isDragSel  = dragSel !== null && i >= Math.min(dragSel.start, dragSel.end) && i <= Math.max(dragSel.start, dragSel.end);
             const isTouchSel = touchSel !== null && i >= Math.min(touchSel.start, touchSel.end) && i <= Math.max(touchSel.start, touchSel.end);
@@ -2233,7 +2340,7 @@ function LingQPage() {
                   <span key={i} data-widx={i}
                     className={`lq-word-phrase-span${isFirst ? ' lq-phrase-first' : ''}${isLast ? ' lq-phrase-last' : ''}${isSel ? ' lq-word-sel' : ''}`}
                     data-status={ph.status}
-                    onClick={e => { e.stopPropagation(); openPhrasePopup(e.clientX, e.clientY, ph.key, pageTokens, ph.from, ph.to, lang); }}
+                    onClick={e => { e.stopPropagation(); openPhrasePopup(e.clientX, e.clientY, ph.key, viewTokens, ph.from, ph.to, lang); }}
                     onPointerDown={e => { if (e.pointerType !== 'touch') e.stopPropagation(); }}
                   >{token.raw}</span>
                 );
@@ -2264,7 +2371,7 @@ function LingQPage() {
                     // Clicking a phrase-highlighted word opens the phrase popup
                     e.preventDefault();
                     e.stopPropagation();
-                    openPhrasePopup(e.clientX, e.clientY, ph.key, pageTokens, ph.from, ph.to, lang);
+                    openPhrasePopup(e.clientX, e.clientY, ph.key, viewTokens, ph.from, ph.to, lang);
                     return;
                   }
                   handleWordPointerDown(e, i);
@@ -2276,24 +2383,29 @@ function LingQPage() {
 
         {touchSel && (
           <div className="lq-sel-bar" onTouchStart={e => e.stopPropagation()}>
-            <button className="lq-sel-arrow" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); expandSelLeft(pageTokens); }} onClick={() => expandSelLeft(pageTokens)}>
+            <button className="lq-sel-arrow" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); expandSelLeft(viewTokens); }} onClick={() => expandSelLeft(viewTokens)}>
               ← add
             </button>
-            <button className="lq-sel-arrow lq-sel-arrow-shrink" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); shrinkSelRight(pageTokens); }} onClick={() => shrinkSelRight(pageTokens)} disabled={touchSel && Math.min(touchSel.start, touchSel.end) === Math.max(touchSel.start, touchSel.end)}>
+            <button className="lq-sel-arrow lq-sel-arrow-shrink" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); shrinkSelRight(viewTokens); }} onClick={() => shrinkSelRight(viewTokens)} disabled={touchSel && Math.min(touchSel.start, touchSel.end) === Math.max(touchSel.start, touchSel.end)}>
               remove →
             </button>
-            <button className="lq-sel-translate-btn" onPointerDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); translateTouchSel(pageTokens, lang); }}>
+            <button className="lq-sel-translate-btn" onPointerDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); translateTouchSel(viewTokens, lang); }}>
               Translate
             </button>
-            <button className="lq-sel-arrow lq-sel-arrow-shrink" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); shrinkSelLeft(pageTokens); }} onClick={() => shrinkSelLeft(pageTokens)} disabled={touchSel && Math.min(touchSel.start, touchSel.end) === Math.max(touchSel.start, touchSel.end)}>
+            <button className="lq-sel-arrow lq-sel-arrow-shrink" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); shrinkSelLeft(viewTokens); }} onClick={() => shrinkSelLeft(viewTokens)} disabled={touchSel && Math.min(touchSel.start, touchSel.end) === Math.max(touchSel.start, touchSel.end)}>
               ← remove
             </button>
-            <button className="lq-sel-arrow" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); expandSelRight(pageTokens); }} onClick={() => expandSelRight(pageTokens)}>
+            <button className="lq-sel-arrow" onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); expandSelRight(viewTokens); }} onClick={() => expandSelRight(viewTokens)}>
               add →
             </button>
           </div>
         )}
 
+        {listening ? (
+          <div className="lq-listen-foot">
+            🎧 Listening mode — the whole text is on this page. Nothing is marked automatically; tap a word only if you want it.
+          </div>
+        ) : (
         <div className="lq-reader-nav">
           <button
             className="lq-nav-btn"
@@ -2315,6 +2427,7 @@ function LingQPage() {
             }}
           >{isLast ? 'Finish ✓' : 'Next →'}</button>
         </div>
+        )}
 
         {popup && (
           <div className="lq-popup" style={{top: popup.y, left: popup.x}} onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
@@ -2369,30 +2482,10 @@ function LingQPage() {
           </div>
         )}
 
-        {ytId && (
-          <div className="lq-media-wrap" style={{display: videoHidden ? 'none' : 'block'}}>
-            <iframe
-              key="lq-yt-iframe"
-              className="lq-yt-iframe"
-              src={`https://www.youtube.com/embed/${ytId}`}
-              title="YouTube video"
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-            />
-          </div>
-        )}
-        {audioFile && (
-          <div className="lq-media-wrap lq-audio-wrap" style={{display: audioHidden ? 'none' : 'block'}}>
-            <audio
-              key="lq-audio-player"
-              className="lq-audio-player"
-              controls
-              src={`/api/audio/${encodeURIComponent(audioFile)}`}
-              preload="metadata"
-            />
-          </div>
-        )}
+        {/* Rendered once, in a fixed DOM position. Listening mode moves it to the
+            top purely with CSS `order`, so switching modes never remounts the
+            iframe and your video/podcast keeps playing without restarting. */}
+        {mediaBlock}
 
       </div>
     );
