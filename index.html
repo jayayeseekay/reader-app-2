@@ -491,8 +491,14 @@
        Keeps flex so `order` still applies (the rule above switches
        .lq-page-with-media to display:block, which would kill it). */
     body.lq-listen-lock { overflow: hidden; }
-    body.lq-listen-lock .main { padding: 0; min-height: 0; height: 100dvh; overflow: hidden; }
-    .lq-listening.lq-page-with-media { display: flex; flex-direction: column; height: 100%; max-height: 100%; overflow: hidden; }
+    /* Definite height in viewport units (minus .main's 20px top + 32px bottom
+       padding) — NOT a percentage, which doesn't resolve reliably here and left
+       the text box un-scrollable. Do NOT zero .main's padding: that makes the
+       header visibly jump when switching modes. */
+    .lq-listening.lq-page-with-media {
+      display: flex; flex-direction: column;
+      height: calc(100dvh - 52px); max-height: calc(100dvh - 52px); overflow: hidden;
+    }
     .lq-listening.lq-page-with-media .lq-media-wrap,
     .lq-listening.lq-page-with-media .lq-audio-wrap { position: static; flex: 0 0 auto; z-index: 6; }
     .lq-listening.lq-page-with-media .lq-media-wrap:not(.lq-spotify-wrap):not(.lq-audio-wrap) { height: auto; }
@@ -500,6 +506,10 @@
       flex: 1 1 auto; min-height: 0; height: auto; max-height: none;
       overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     }
+    /* The selection bar renders after the (full-length) text, so it must be a
+       non-shrinking flex item or it ends up stranded below the fold. */
+    .lq-listening.lq-page-with-media .lq-sel-bar { flex: 0 0 auto; }
+    .lq-listening .lq-listen-foot { padding: 6px 12px; font-size: 11px; }
   }
 </style>
 </head>
