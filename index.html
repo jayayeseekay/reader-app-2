@@ -247,6 +247,11 @@
   .lq-listening .lq-listen-foot   { order: 1; }
   .lq-listening .lq-media-wrap:not(.lq-spotify-wrap):not(.lq-audio-wrap) { height: 30vh; height: 30dvh; }
   .lq-listen-foot { flex-shrink: 0; padding: 10px 16px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); background: var(--bg-secondary); text-align: center; }
+
+  /* While a long-press phrase selection is active, stop the browser from
+     scrolling/panning so dragging extends the selection instead. Needed because
+     touchmove listeners are passive, so preventDefault() alone can't block it. */
+  .lq-reader-body.lq-selecting { touch-action: none; }
   .lq-yt-toggle { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit; transition: all var(--transition); flex-shrink: 0; }
   .lq-yt-toggle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
@@ -481,13 +486,20 @@
     .lq-page-with-media .lq-media-wrap { position: sticky; bottom: 0; flex: none; height: auto; z-index: 5; }
     .lq-page-with-media .lq-yt-iframe { height: auto; aspect-ratio: 16 / 9; }
     .lq-page-with-media .lq-audio-wrap { position: sticky; bottom: 0; }
-    /* Listening on mobile: keep flex so `order` still applies (the rule above
-       switches .lq-page-with-media to display:block, which would kill it), and
-       stick the player to the TOP while the text scrolls under it. */
-    .lq-listening.lq-page-with-media { display: flex; flex-direction: column; height: auto; max-height: none; overflow: visible; }
+    /* Listening on mobile: the page itself is locked (see .lq-listen-lock), the
+       player is genuinely fixed at the top, and ONLY the text box scrolls.
+       Keeps flex so `order` still applies (the rule above switches
+       .lq-page-with-media to display:block, which would kill it). */
+    body.lq-listen-lock { overflow: hidden; }
+    body.lq-listen-lock .main { padding: 0; min-height: 0; height: 100dvh; overflow: hidden; }
+    .lq-listening.lq-page-with-media { display: flex; flex-direction: column; height: 100%; max-height: 100%; overflow: hidden; }
     .lq-listening.lq-page-with-media .lq-media-wrap,
-    .lq-listening.lq-page-with-media .lq-audio-wrap { position: sticky; top: 0; bottom: auto; z-index: 6; }
+    .lq-listening.lq-page-with-media .lq-audio-wrap { position: static; flex: 0 0 auto; z-index: 6; }
     .lq-listening.lq-page-with-media .lq-media-wrap:not(.lq-spotify-wrap):not(.lq-audio-wrap) { height: auto; }
+    .lq-listening.lq-page-with-media .lq-reader-body {
+      flex: 1 1 auto; min-height: 0; height: auto; max-height: none;
+      overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    }
   }
 </style>
 </head>
@@ -675,6 +687,17 @@ function LingQPage() {
   // 'listening'= whole text on one scroll page, media pinned top, NOTHING is
   //              ever auto-marked — you only tap a word if you want it.
   const [readerMode, setReaderMode]     = useState('reading');
+
+  // Listening mode locks the PAGE from scrolling so the player stays fixed and
+  // the text scrolls inside its own box instead. Locking the page also stops the
+  // mobile URL bar from showing/hiding mid-scroll, which is what made the layout
+  // jump around before.
+  React.useEffect(() => {
+    const on = view === 'reader' && readerMode === 'listening';
+    document.body.classList.toggle('lq-listen-lock', on);
+    return () => document.body.classList.remove('lq-listen-lock');
+  }, [view, readerMode]);
+
   const [urlFetching, setUrlFetching]   = useState(false);
   const [urlError, setUrlError]         = useState('');
   const [audioUploading, setAudioUploading] = useState(false);
@@ -2318,7 +2341,7 @@ function LingQPage() {
           <button className="lq-delete-btn" onClick={() => { if (window.confirm('Delete this text?')) deleteText(activeText.id); }}>Delete</button>
         </div>
 
-        <div className="lq-reader-body"
+        <div className={`lq-reader-body${touchSel ? ' lq-selecting' : ''}`}
           onPointerMove={handleReaderPointerMove}
           onPointerUp={e => handleReaderPointerUp(e, viewTokens, lang)}
           onTouchStart={handleTouchStart}
