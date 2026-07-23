@@ -2218,20 +2218,33 @@ function LingQPage() {
       const tokens_ = tokenizeText(activeText.content);
       const unique_ = [...new Set(tokens_.filter(t => t.type === 'word').map(t => t.key))];
       (async () => {
+        // Accumulate translations and save in batches. Saving after EVERY word
+        // POSTed the whole ~285KB dataset hundreds of times per text — the main
+        // bandwidth drain. Flush every 25 words and once at the end instead.
+        let pending = {};
+        let sinceFlush = 0;
+        const flush = () => {
+          if (Object.keys(pending).length === 0) return;
+          const f2 = lqDataRef.current;
+          const merged = { ...(f2.wordTranslations?.[langOpt.code] || {}), ...pending };
+          saveLqData({ ...f2, wordTranslations: { ...(f2.wordTranslations || {}), [langOpt.code]: merged } });
+          pending = {};
+          sinceFlush = 0;
+        };
         for (const word of unique_) {
-          if (ctx.cancelled) return;
+          if (ctx.cancelled) { flush(); return; }
           const f = lqDataRef.current;
           const wt = f.wordTranslations?.[langOpt.code] || {};
-          if (wt[word] && !isBadTranslation(wt[word])) continue;
+          if ((wt[word] && !isBadTranslation(wt[word])) || pending[word]) continue;
           const tr = await fetchTranslation(word, langOpt.apiCode);
-          if (ctx.cancelled) return;
+          if (ctx.cancelled) { flush(); return; }
           if (tr && tr !== '(unavailable)') {
-            const f2 = lqDataRef.current;
-            const wtU = { ...(f2.wordTranslations || {}), [langOpt.code]: { ...(f2.wordTranslations?.[langOpt.code] || {}), [word]: tr } };
-            saveLqData({ ...f2, wordTranslations: wtU });
+            pending[word] = tr;
+            if (++sinceFlush >= 25) flush();
           }
           await new Promise(r => setTimeout(r, 120));
         }
+        flush();
       })();
     }
     const allTokens = tokenizeText(activeText.content);

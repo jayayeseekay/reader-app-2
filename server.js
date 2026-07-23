@@ -97,6 +97,24 @@ function pushToGitHub(jsonString, tries = 0) {
   });
 }
 
+// Coalesce bursts of saves into ONE push per window. The reader can fire
+// hundreds of saves in seconds (background word translation); pushing each one
+// uploaded the whole ~285KB file hundreds of times and burned huge bandwidth.
+// This uploads at most once per window, always with the latest data.
+const GH_PUSH_WINDOW_MS = 15000;
+let ghPushTimer = null;
+let ghPendingJson = null;
+function scheduleGitHubPush(jsonString) {
+  if (!githubConfigured()) return;
+  ghPendingJson = jsonString;                 // keep only the newest snapshot
+  if (ghPushTimer) return;                     // a push is already queued
+  ghPushTimer = setTimeout(() => {
+    ghPushTimer = null;
+    const j = ghPendingJson; ghPendingJson = null;
+    if (j != null) pushToGitHub(j);
+  }, GH_PUSH_WINDOW_MS);
+}
+
 // On startup: restore local lingq.json from GitHub if it's missing, and prime the sha.
 async function initGitHubStorage() {
   if (!githubConfigured()) {
@@ -217,9 +235,10 @@ function writeJSON(file, data) {
   // 4. Atomic rename: tmp → main
   fs.renameSync(tmp, fp);
 
-  // 5. Mirror the main data file to GitHub (durable backup; runs in background)
+  // 5. Mirror the main data file to GitHub (durable backup; debounced so a burst
+  //    of saves becomes a single upload instead of hundreds).
   if (file === 'lingq.json') {
-    try { pushToGitHub(json); } catch (e) { console.error('[GitHub] push error: ' + e.message); }
+    try { scheduleGitHubPush(json); } catch (e) { console.error('[GitHub] push error: ' + e.message); }
   }
 }
 
