@@ -23,6 +23,51 @@ let   ghSha     = null;                                        // cached sha of 
 
 function githubConfigured() { return !!(GH_TOKEN && GH_REPO); }
 
+// ── Supadata transcript API ───────────────────────────────────────────────────
+// YouTube blocks datacenter IPs, so scraping captions directly from a host like
+// Render fails. Supadata fetches them from its own infrastructure and returns
+// clean text. Free tier: 100 requests/month. Key is optional — without it the
+// server just falls back to the original scraping strategies.
+const SUPADATA_KEY = process.env.SUPADATA_API_KEY || '';
+
+function supadataTranscript(videoUrl, langHint) {
+  if (!SUPADATA_KEY) return Promise.resolve({ error: 'no key' });
+  let apiPath = '/v1/transcript?text=true&url=' + encodeURIComponent(videoUrl);
+  if (langHint) apiPath += '&lang=' + encodeURIComponent(langHint);
+  return new Promise((resolve) => {
+    const reqS = https.request({
+      hostname: 'api.supadata.ai',
+      path: apiPath,
+      method: 'GET',
+      headers: { 'x-api-key': SUPADATA_KEY, 'Accept': 'application/json' },
+      timeout: 120000
+    }, resp => {
+      let data = '';
+      resp.on('data', d => data += d);
+      resp.on('end', () => {
+        if (resp.statusCode !== 200) {
+          let msg = 'Supadata HTTP ' + resp.statusCode;
+          try { const e = JSON.parse(data); msg += ': ' + (e.message || e.error || ''); } catch {}
+          return resolve({ error: msg });
+        }
+        try {
+          const j = JSON.parse(data);
+          // `content` is a plain string with text=true, or an array of segments.
+          let text = '';
+          if (typeof j.content === 'string') text = j.content;
+          else if (Array.isArray(j.content)) text = j.content.map(s => (s.text || '').replace(/\n/g, ' ').trim()).filter(Boolean).join(' ');
+          text = text.replace(/[ \t]+/g, ' ').trim();
+          if (!text) return resolve({ error: 'Supadata returned no transcript text' });
+          resolve({ text, lang: j.lang || null });
+        } catch (e) { resolve({ error: 'Supadata parse error: ' + e.message }); }
+      });
+    });
+    reqS.on('timeout', () => { reqS.destroy(); resolve({ error: 'Supadata timed out' }); });
+    reqS.on('error', (e) => resolve({ error: 'Supadata request failed: ' + e.message }));
+    reqS.end();
+  });
+}
+
 // Minimal GitHub API request via built-in https. Never throws; resolves { status, body }.
 function ghApi(method, apiPath, bodyObj) {
   return new Promise((resolve) => {
@@ -545,6 +590,32 @@ const server = http.createServer(async (req, res) => {
         let textParts = [];
         let detectedLang = 'en';
         const debug = [];
+
+        // Strategy 0: Supadata API. The only strategy that reliably works from a
+        // host (YouTube blocks datacenter IPs), so try it first when configured.
+        if (SUPADATA_KEY) {
+          debug.push('S0: trying Supadata...');
+          const sd = await supadataTranscript(targetUrl, body.lang);
+          if (sd.error) {
+            debug.push('S0: ' + sd.error);
+          } else {
+            debug.push('S0: got ' + sd.text.length + ' chars');
+            if (sd.lang) detectedLang = sd.lang;
+            // Break the flat transcript into readable paragraphs (~40 words).
+            const words = sd.text.split(/\s+/);
+            const paras = [];
+            for (let i = 0; i < words.length; i += 40) paras.push(words.slice(i, i + 40).join(' '));
+            return send(res, 200, {
+              title,
+              text: paras.join('\n\n'),
+              language: detectedLang,
+              sourceUrl: targetUrl,
+              engine: 'supadata'
+            });
+          }
+        } else {
+          debug.push('S0: skipped (no SUPADATA_API_KEY set)');
+        }
 
         // Strategy 1: scrape captionTracks from page HTML
         try {
