@@ -184,6 +184,24 @@
   .lq-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .lq-stats-empty { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
 
+  /* Flashcard day counters */
+  .lq-card-counters { display: flex; justify-content: center; gap: 10px; margin-bottom: 10px; }
+  .lq-counter { min-width: 44px; text-align: center; padding: 5px 12px; border-radius: 9px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .lq-counter-green { color: #22c55e; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.35); }
+  .lq-counter-red   { color: #ef4444; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.35); }
+
+  /* Study settings */
+  .lq-settings-btn { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; font-family: inherit; cursor: pointer; transition: all var(--transition); }
+  .lq-settings-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .lq-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .lq-setting-row:last-of-type { border-bottom: none; }
+  .lq-setting-label { font-size: 14px; font-weight: 600; }
+  .lq-setting-desc { font-size: 12px; color: var(--text-muted); margin-top: 3px; line-height: 1.5; max-width: 270px; }
+  .lq-setting-num { width: 80px; padding: 8px 10px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-family: inherit; font-size: 15px; font-weight: 600; text-align: center; flex-shrink: 0; }
+  .lq-seg { display: flex; gap: 3px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 3px; flex-shrink: 0; }
+  .lq-seg-btn { background: transparent; border: 0; border-radius: 6px; padding: 6px 10px; color: var(--text-muted); font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; transition: all var(--transition); }
+  .lq-seg-btn.lq-seg-on { background: var(--accent); color: #fff; }
+
   /* Editable translations */
   .lq-trans-row { display: flex; align-items: flex-start; gap: 8px; }
   .lq-trans-row .lq-popup-translation { flex: 1; }
@@ -684,6 +702,49 @@ async function fetchTranslation(word, fromCode) {
   }
 }
 
+// ── Study settings & daily session ───────────────────────────────
+const DEFAULT_STUDY_SETTINGS = {
+  dailyLimit: 50,     // max NEW cards opened per day
+  autoSpeak: false,   // pronounce the word when the card is revealed
+  order: 'due',       // 'due' = overdue first, then new | 'random'
+};
+
+// Today's session state, per language. `opened` = words shown today (counts
+// against the daily limit). `again` = the red pile: words rated Again that keep
+// coming back today until rated Good or Easy. Rolls over automatically at midnight.
+function normalizeStudyDay(raw, todayStr) {
+  if (!raw || raw.date !== todayStr) return { date: todayStr, opened: {}, again: {} };
+  return { date: todayStr, opened: raw.opened || {}, again: raw.again || {} };
+}
+
+// Pure SRS maths so it can be unit-tested and saved alongside other changes in
+// one write. Ratings: 1 = Again, 3 = Good, 4 = Easy (2/Hard removed).
+// Good and Easy always schedule further out than the previous interval, and
+// Easy always further than Good.
+function computeSRS(srs, rating) {
+  const iv = srs.interval || 0;
+  let ease = srs.ease || 2.5;
+  const isNew = (srs.reviews || 0) === 0;
+  let newInterval;
+  if (rating === 1) {
+    newInterval = 0.00694;                       // ~10 min → comes back today
+    ease = Math.max(1.3, ease - 0.2);
+  } else if (rating === 4) {
+    newInterval = isNew ? 4 : Math.max(iv * ease * 1.3, iv + 1);
+    ease = Math.min(3.0, ease + 0.15);
+  } else {                                        // Good
+    newInterval = isNew ? 1 : Math.max(iv * ease, iv + 1);
+  }
+  const now = new Date();
+  return {
+    interval: newInterval,
+    ease,
+    reviews: (srs.reviews || 0) + 1,
+    dueAt: new Date(now.getTime() + newInterval * 86400000).toISOString(),
+    lastReview: now.toISOString(),
+  };
+}
+
 // ── Progress history helpers ─────────────────────────────────────
 // History is stored as lqData.history[lang]["YYYY-MM-DD"] = { k, l }, where k/l
 // are that day's NET change in known / learning counts. One tiny entry per day.
@@ -814,6 +875,8 @@ function LingQPage() {
     wordPos: {},
     wordTranslations: {},
     srs: {},
+    studySettings: { ...DEFAULT_STUDY_SETTINGS },
+    studyDay: {},
   });
 
   // One-time cleanup: remove any bad cached translations
@@ -917,6 +980,8 @@ function LingQPage() {
   // Translation editing: null = not editing, string = current draft text.
   const [transEdit, setTransEdit]         = useState(null);   // reader popup
   const [cardEdit, setCardEdit]           = useState(null);   // flashcard
+  const [showStudySettings, setShowStudySettings] = useState(false);
+  const studySettings = { ...DEFAULT_STUDY_SETTINGS, ...(lqData.studySettings || {}) };
 
   // Drop any half-typed edit when the word / card underneath it changes, so a
   // draft can never be saved onto the wrong word.
@@ -1399,10 +1464,23 @@ function LingQPage() {
         const isDue = !srs.dueAt || new Date(srs.dueAt).getTime() <= now;
         return { word: w, translation, stage: s, srs, isDue };
       });
-    const due = learningWords.filter(c => c.isDue && c.srs.reviews > 0)
+    // Daily limit: only `dailyLimit` NEW cards may be opened per day. Words
+    // already finished today are excluded; the red pile (Again) always comes
+    // back regardless of the limit, since it's already been counted.
+    const settings = { ...DEFAULT_STUDY_SETTINGS, ...(lqDataRef.current.studySettings || {}) };
+    const day = normalizeStudyDay(lqDataRef.current.studyDay?.[langCode], todayKey());
+    const openedCount = Object.keys(day.opened).length;
+    const quotaLeft = Math.max(0, (settings.dailyLimit || 50) - openedCount);
+
+    const againCards = learningWords.filter(c => day.again[c.word]);
+    const notOpened  = learningWords.filter(c => !day.opened[c.word]);
+
+    const due = notOpened.filter(c => c.isDue && c.srs.reviews > 0)
       .sort((a, b) => (new Date(a.srs.dueAt || 0)).getTime() - (new Date(b.srs.dueAt || 0)).getTime());
-    const newCards = shuffle(learningWords.filter(c => c.srs.reviews === 0));
-    return [...due, ...newCards].slice(0, 10);
+    const newCards = shuffle(notOpened.filter(c => c.srs.reviews === 0));
+    let picks = settings.order === 'random' ? shuffle([...due, ...newCards]) : [...due, ...newCards];
+    picks = picks.slice(0, quotaLeft);
+    return [...picks, ...againCards];
   }
 
   function getSRS(langCode, word) {
@@ -1423,40 +1501,52 @@ function LingQPage() {
     const iv = srsEntry.interval || 0;
     const ease = srsEntry.ease || 2.5;
     const isNew = srsEntry.reviews === 0;
-    if (isNew) return { again: '1m', hard: '6m', good: '1d', easy: '4d' };
+    if (isNew) return { again: 'today', good: '1d', easy: '4d' };
     return {
-      again: '10m',
-      hard: formatInterval(Math.max(0.007, iv * 1.2)),
-      good: formatInterval(Math.max(1, iv * ease)),
-      easy: formatInterval(Math.max(1, iv * ease * 1.3)),
+      again: 'today',
+      good: formatInterval(Math.max(iv * ease, iv + 1)),
+      easy: formatInterval(Math.max(iv * ease * 1.3, iv + 1)),
     };
   }
 
-  function rateSRS(langCode, word, rating) {
-    const srs = getSRS(langCode, word);
-    const iv = srs.interval || 0;
-    let ease = srs.ease || 2.5;
-    const isNew = srs.reviews === 0;
-    let newInterval;
-    if (rating === 1) {
-      newInterval = isNew ? 0.00069 : 0.00694;
-      ease = Math.max(1.3, ease - 0.2);
-    } else if (rating === 2) {
-      newInterval = isNew ? 0.00417 : Math.max(0.00694, iv * 1.2);
-      ease = Math.max(1.3, ease - 0.15);
-    } else if (rating === 3) {
-      newInterval = isNew ? 1 : Math.max(1, iv * ease);
-    } else {
-      newInterval = isNew ? 4 : Math.max(1, iv * ease * 1.3);
-      ease = Math.min(3.0, ease + 0.15);
-    }
-    const now = new Date();
-    const dueAt = new Date(now.getTime() + newInterval * 86400000).toISOString();
-    const entry = { interval: newInterval, ease, reviews: (srs.reviews || 0) + 1, dueAt, lastReview: now.toISOString() };
+  // Rate a card AND update today's session in a single save — two separate
+  // saves per card would double the write traffic for no benefit.
+  function rateAndRecord(langCode, word, rating) {
+    const entry = computeSRS(getSRS(langCode, word), rating);
+    const day = getStudyDay(langCode);
+    const again = { ...day.again };
+    if (rating === 1) again[word] = 1;   // into the red pile
+    else delete again[word];             // Good / Easy clears it for today
+    const nextDay = { date: day.date, opened: { ...day.opened, [word]: 1 }, again };
     const fresh = lqDataRef.current;
-    const srsAll = { ...(fresh.srs || {}), [langCode]: { ...(fresh.srs?.[langCode] || {}), [word]: entry } };
-    saveLqData({ ...fresh, srs: srsAll });
+    saveLqData({
+      ...fresh,
+      srs: { ...(fresh.srs || {}), [langCode]: { ...(fresh.srs?.[langCode] || {}), [word]: entry } },
+      studyDay: { ...(fresh.studyDay || {}), [langCode]: nextDay },
+    });
     return entry;
+  }
+
+  function getStudyDay(langCode) {
+    return normalizeStudyDay(lqDataRef.current.studyDay?.[langCode], todayKey());
+  }
+
+  function saveStudyDay(langCode, next) {
+    const f = lqDataRef.current;
+    saveLqData({ ...f, studyDay: { ...(f.studyDay || {}), [langCode]: next } });
+  }
+
+  // Called when a card is revealed. No-ops if already counted, so repeatedly
+  // flipping the same card doesn't spam saves.
+  function markCardOpened(langCode, word) {
+    const day = getStudyDay(langCode);
+    if (day.opened[word]) return;
+    saveStudyDay(langCode, { ...day, opened: { ...day.opened, [word]: 1 } });
+  }
+
+  function saveStudySettings(patch) {
+    const f = lqDataRef.current;
+    saveLqData({ ...f, studySettings: { ...DEFAULT_STUDY_SETTINGS, ...(f.studySettings || {}), ...patch } });
   }
 
   async function fetchStudyTranslations(langCode, words) {
@@ -1918,8 +2008,9 @@ function LingQPage() {
     function rateAndAdvance(rating) {
       if (!card || advancingRef.current) return;
       advancingRef.current = true;
-      rateSRS(effectiveLang, card.word, rating);
-      if (rating <= 2) {
+      rateAndRecord(effectiveLang, card.word, rating);
+      // Again → requeue so it comes back later in today's session.
+      if (rating === 1) {
         setStudyCards(prev => [...prev, { ...card }]);
       }
       setStudyFlipped(false);
@@ -1942,6 +2033,7 @@ function LingQPage() {
               <button className="btn btn-ghost" onClick={() => setView('library')}>← Back</button>
               <div className="lq-title">Study</div>
             </div>
+            <button className="lq-settings-btn" title="Study settings" onClick={() => setShowStudySettings(true)}>⚙ Settings</button>
           </div>
           <div style={{display:'flex',alignItems:'baseline',gap:'12px',flexWrap:'wrap'}}>
             <span style={{color:'var(--text-muted)',fontSize:'14px'}}>
@@ -2008,6 +2100,84 @@ function LingQPage() {
               <div className="lq-study-mode-desc">{mcqEnabled ? 'See the meaning, pick the word' : ('Need ' + Math.max(0,4-mcqCards.length) + ' more translated words')}</div>
             </div>
           </div>
+
+          {showStudySettings && (() => {
+            const day = getStudyDay(effectiveLang);
+            const openedToday = Object.keys(day.opened).length;
+            return (
+              <div className="modal-overlay" onClick={() => setShowStudySettings(false)}>
+                <div className="modal" style={{maxWidth:460}} onClick={e => e.stopPropagation()}>
+                  <div className="modal-title">Study settings</div>
+
+                  <div className="lq-setting-row">
+                    <div>
+                      <div className="lq-setting-label">Cards per day</div>
+                      <div className="lq-setting-desc">Most new cards you can open in a day. Cards you mark Again still come back on top of this.</div>
+                    </div>
+                    <input
+                      type="number" min="1" max="500" className="lq-setting-num"
+                      value={studySettings.dailyLimit}
+                      onChange={e => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!isNaN(v)) saveStudySettings({ dailyLimit: Math.max(1, Math.min(500, v)) });
+                      }}
+                    />
+                  </div>
+
+                  <div className="lq-setting-row">
+                    <div>
+                      <div className="lq-setting-label">Card order</div>
+                      <div className="lq-setting-desc">Overdue words first, or shuffle everything.</div>
+                    </div>
+                    <div className="lq-seg">
+                      <button className={'lq-seg-btn' + (studySettings.order === 'due' ? ' lq-seg-on' : '')}
+                        onClick={() => saveStudySettings({ order: 'due' })}>Due first</button>
+                      <button className={'lq-seg-btn' + (studySettings.order === 'random' ? ' lq-seg-on' : '')}
+                        onClick={() => saveStudySettings({ order: 'random' })}>Random</button>
+                    </div>
+                  </div>
+
+                  <div className="lq-setting-row">
+                    <div>
+                      <div className="lq-setting-label">Pronounce on reveal</div>
+                      <div className="lq-setting-desc">Speak the word aloud when you flip a card.</div>
+                    </div>
+                    <div className="lq-seg">
+                      <button className={'lq-seg-btn' + (studySettings.autoSpeak ? ' lq-seg-on' : '')}
+                        onClick={() => saveStudySettings({ autoSpeak: true })}>On</button>
+                      <button className={'lq-seg-btn' + (!studySettings.autoSpeak ? ' lq-seg-on' : '')}
+                        onClick={() => saveStudySettings({ autoSpeak: false })}>Off</button>
+                    </div>
+                  </div>
+
+                  <div className="lq-setting-row">
+                    <div>
+                      <div className="lq-setting-label">Today</div>
+                      <div className="lq-setting-desc">
+                        {openedToday} of {studySettings.dailyLimit} opened · {Object.keys(day.again).length} in the Again pile
+                      </div>
+                    </div>
+                    <button className="lq-trans-cancel" onClick={() => {
+                      if (!window.confirm("Reset today's study progress?\n\nThis clears the " + openedToday + " card(s) counted today and empties the Again pile, letting you study up to " + studySettings.dailyLimit + " more today. Your saved words, translations and review schedule are NOT affected.")) return;
+                      saveStudyDay(effectiveLang, { date: todayKey(), opened: {}, again: {} });
+                      setStudyCards(buildStudyCards(effectiveLang, studyLevels));
+                      setStudyIdx(0);
+                      setShowStudySettings(false);
+                    }}>Reset today</button>
+                  </div>
+
+                  <div style={{display:'flex',justifyContent:'flex-end',marginTop:'18px'}}>
+                    <button className="btn btn-primary" onClick={() => {
+                      // Rebuild so a changed limit / order takes effect immediately.
+                      setStudyCards(buildStudyCards(effectiveLang, studyLevels));
+                      setStudyIdx(0);
+                      setShowStudySettings(false);
+                    }}>Done</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       );
     }
@@ -2074,8 +2244,30 @@ function LingQPage() {
               <div className="lq-title">Flashcards</div>
             </div>
           </div>
-          <div className="lq-study-progress">{remaining} remaining</div>
-          <div className="lq-flashcard-wrap" onClick={() => { if (!advancingRef.current) setStudyFlipped(f => !f); }}>
+          {(() => {
+            // Green = cards left today you haven't opened yet.
+            // Red   = cards you rated Again today, still waiting to come back.
+            const day = getStudyDay(effectiveLang);
+            const green = new Set(
+              cards.slice(studyIdx).filter(c => !day.opened[c.word]).map(c => c.word)
+            ).size;
+            const red = Object.keys(day.again).length;
+            return (
+              <div className="lq-card-counters">
+                <span className="lq-counter lq-counter-green" title="New cards left for today">{green}</span>
+                <span className="lq-counter lq-counter-red" title="Cards you marked Again — coming back today">{red}</span>
+              </div>
+            );
+          })()}
+          <div className="lq-flashcard-wrap" onClick={() => {
+            if (advancingRef.current) return;
+            const revealing = !studyFlipped;
+            setStudyFlipped(f => !f);
+            if (revealing && card) {
+              markCardOpened(effectiveLang, card.word);
+              if (studySettings.autoSpeak) speakInLang(card.word, lang.speechLang);
+            }
+          }}>
             <div className={`lq-flashcard${studyFlipped ? ' flipped' : ''}`}>
               <div className="lq-flashcard-face">
                 <div className="lq-flashcard-word">{card?.word}</div>
@@ -2129,10 +2321,6 @@ function LingQPage() {
               <button className="lq-srs-btn" data-rating="1" onClick={() => rateAndAdvance(1)} disabled={advancingRef.current}>
                 <span className="lq-srs-label">Again</span>
                 <span className="lq-srs-interval">{intervals.again}</span>
-              </button>
-              <button className="lq-srs-btn" data-rating="2" onClick={() => rateAndAdvance(2)} disabled={advancingRef.current}>
-                <span className="lq-srs-label">Hard</span>
-                <span className="lq-srs-interval">{intervals.hard}</span>
               </button>
               <button className="lq-srs-btn" data-rating="3" onClick={() => rateAndAdvance(3)} disabled={advancingRef.current}>
                 <span className="lq-srs-label">Good</span>
