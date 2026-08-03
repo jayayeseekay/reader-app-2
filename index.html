@@ -895,10 +895,9 @@ function LingQPage() {
   const storyTimerRef = React.useRef(null);
   const [libraryTab, setLibraryTab]       = useState('imported'); // 'imported' | 'generated'
 
-  // Progress chart
-  const [statsRange, setStatsRange]             = useState('30d');
-  const [statsShowKnown, setStatsShowKnown]     = useState(true);
-  const [statsShowLearning, setStatsShowLearning] = useState(true);
+  // Progress chart — one series at a time: 'known' | 'learning'
+  const [statsRange, setStatsRange]   = useState('7d');
+  const [statsSeries, setStatsSeries] = useState('known');
   // Study: which saved levels (1–4) to include. All by default.
   const [studyLevels, setStudyLevels]     = useState([1, 2, 3, 4]);
 
@@ -2177,7 +2176,17 @@ function LingQPage() {
             <div className="lq-stat-label">Known Words</div>
             <div className="lq-stat-value" style={{color:'#22c55e'}}>{knownCount}</div>
           </div>
-          <div className="lq-stat-card lq-stat-learning lq-clickable" onClick={() => { setStatsModal('learning'); batchFetchPOS(effectiveLang); }}>
+          <div className="lq-stat-card lq-stat-learning lq-clickable" onClick={() => {
+            // Straight to the study screen — same setup the old modal's Study button did.
+            setStudyCards(buildStudyCards(effectiveLang, studyLevels));
+            setStudyIdx(0);
+            setStudyMode(null);
+            setStudyFlipped(false);
+            setStudyAnswer(null);
+            setStudyScore({ correct: 0, total: 0 });
+            studyFetchRef.current = null;
+            setView('study');
+          }}>
             <div className="lq-stat-label">Learning</div>
             <div className="lq-stat-value" style={{color:'#fde047'}}>{learningCount}</div>
           </div>
@@ -2343,7 +2352,6 @@ function LingQPage() {
           const hist   = lqData.history?.[effectiveLang] || {};
           const raw    = buildProgressSeries(hist, range.days, knownCount, learningCount);
           const points = bucketSeries(raw, range.bucket);
-          const anyData = Object.keys(hist).length > 0;
           return (
             <div className="lq-stats-panel">
               <div className="lq-stats-panel-head">
@@ -2361,22 +2369,23 @@ function LingQPage() {
 
               <ProgressChart
                 points={points}
-                showKnown={statsShowKnown}
-                showLearning={statsShowLearning}
+                showKnown={statsSeries === 'known'}
+                showLearning={statsSeries === 'learning'}
                 bucket={range.bucket}
               />
 
+              {/* One series at a time — clicking switches which line is shown. */}
               <div className="lq-chart-legend">
                 <div
-                  className={'lq-legend-item' + (statsShowKnown ? '' : ' lq-legend-off')}
-                  onClick={() => setStatsShowKnown(v => !v)}
+                  className={'lq-legend-item' + (statsSeries === 'known' ? '' : ' lq-legend-off')}
+                  onClick={() => setStatsSeries('known')}
                 >
                   <span className="lq-legend-dot" style={{background:'#22c55e'}}></span>
                   Known — {knownCount}
                 </div>
                 <div
-                  className={'lq-legend-item' + (statsShowLearning ? '' : ' lq-legend-off')}
-                  onClick={() => setStatsShowLearning(v => !v)}
+                  className={'lq-legend-item' + (statsSeries === 'learning' ? '' : ' lq-legend-off')}
+                  onClick={() => setStatsSeries('learning')}
                 >
                   <span className="lq-legend-dot" style={{background:'#fde047'}}></span>
                   Learning — {learningCount}
@@ -2387,13 +2396,6 @@ function LingQPage() {
                   </span>
                 )}
               </div>
-
-              {!anyData && (
-                <div className="lq-stats-empty">
-                  No day-by-day history yet — it starts recording from today. The lines show your
-                  current totals until there are daily changes to plot.
-                </div>
-              )}
             </div>
           );
         })()}
