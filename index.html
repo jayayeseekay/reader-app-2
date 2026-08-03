@@ -184,6 +184,18 @@
   .lq-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .lq-stats-empty { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
 
+  /* Editable translations */
+  .lq-trans-row { display: flex; align-items: flex-start; gap: 8px; }
+  .lq-trans-row .lq-popup-translation { flex: 1; }
+  .lq-trans-edit-btn { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; color: var(--text-muted); font-size: 12px; font-family: inherit; cursor: pointer; flex-shrink: 0; line-height: 1.6; transition: all var(--transition); }
+  .lq-trans-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .lq-trans-edit { display: flex; gap: 6px; align-items: center; width: 100%; flex-wrap: wrap; }
+  .lq-trans-input { flex: 1; min-width: 120px; padding: 7px 10px; background: var(--bg-tertiary); border: 1px solid var(--accent); border-radius: 7px; color: var(--text-primary); font-family: inherit; font-size: 14px; box-sizing: border-box; }
+  .lq-trans-save { background: var(--accent); border: 0; border-radius: 7px; padding: 7px 12px; color: #fff; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; }
+  .lq-trans-cancel { background: transparent; border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; color: var(--text-muted); font-size: 12px; font-family: inherit; cursor: pointer; }
+  .lq-trans-edited { font-size: 10px; color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
+  .lq-card-edit-row { display: flex; justify-content: center; margin-top: 10px; }
+
   /* Study level filter */
   .lq-level-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
   .lq-level-chip { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all var(--transition); }
@@ -814,8 +826,10 @@ function LingQPage() {
     const cleaned = {};
     for (const [lang, words] of Object.entries(wt)) {
       cleaned[lang] = {};
+      const langEdits = lqData.translationEdits?.[lang] || {};
       for (const [word, trans] of Object.entries(words)) {
-        if (isBadTranslation(trans)) { dirty = true; }
+        // Never discard a hand-edited translation.
+        if (isBadTranslation(trans) && !langEdits[word]) { dirty = true; }
         else { cleaned[lang][word] = trans; }
       }
     }
@@ -900,6 +914,14 @@ function LingQPage() {
   const [statsSeries, setStatsSeries] = useState('known');
   // Study: which saved levels (1–4) to include. All by default.
   const [studyLevels, setStudyLevels]     = useState([1, 2, 3, 4]);
+  // Translation editing: null = not editing, string = current draft text.
+  const [transEdit, setTransEdit]         = useState(null);   // reader popup
+  const [cardEdit, setCardEdit]           = useState(null);   // flashcard
+
+  // Drop any half-typed edit when the word / card underneath it changes, so a
+  // draft can never be saved onto the wrong word.
+  React.useEffect(() => { setTransEdit(null); }, [popup && popup.key]);
+  React.useEffect(() => { setCardEdit(null); }, [studyIdx, studyMode]);
 
   if (!loaded) return <div className="lq-page"><p style={{color:'var(--text-muted)'}}>Loading…</p></div>;
 
@@ -959,6 +981,32 @@ function LingQPage() {
   function updateWord(key, status, langCode) {
     setWS(langCode, { [key]: status });
     setPopup(p => p && p.key === key ? { ...p, status } : p);
+  }
+
+  // Save a hand-edited translation. Both the reader popup and the flashcards
+  // read from lqData.wordTranslations, so an edit in either place shows up in
+  // the other. `translationEdits` marks it as manual so the auto-translator and
+  // the bad-translation cleanup never overwrite it. Clearing the text removes
+  // the mark, letting automatic translation take over again.
+  function saveWordTranslation(langCode, key, text) {
+    const clean = (text || '').trim();
+    const f = lqDataRef.current;
+    const wt = { ...(f.wordTranslations || {}) };
+    const langWt = { ...(wt[langCode] || {}) };
+    const ed = { ...(f.translationEdits || {}) };
+    const langEd = { ...(ed[langCode] || {}) };
+    if (clean) { langWt[key] = clean; langEd[key] = 1; }
+    else { delete langWt[key]; delete langEd[key]; }
+    wt[langCode] = langWt;
+    ed[langCode] = langEd;
+    saveLqData({ ...f, wordTranslations: wt, translationEdits: ed });
+    // Keep any in-memory study deck in step straight away.
+    setStudyCards(cs => cs.map(c => c.word === key ? { ...c, translation: clean || null } : c));
+    return clean;
+  }
+
+  function isEditedTranslation(langCode, key) {
+    return !!(lqDataRef.current.translationEdits?.[langCode] || {})[key];
   }
 
   function openPhrasePopup(cx, cy, phraseKey, tokens, from, to, langOption) {
@@ -1336,13 +1384,17 @@ function LingQPage() {
     const lv = (Array.isArray(levels) && levels.length) ? levels : [1, 2, 3, 4];
     const ws = lqDataRef.current.wordStatus?.[langCode] || {};
     const wt = lqDataRef.current.wordTranslations?.[langCode] || {};
+    const edits = lqDataRef.current.translationEdits?.[langCode] || {};
     const srsData = lqDataRef.current.srs?.[langCode] || {};
     const now = Date.now();
     const learningWords = Object.entries(ws)
       .filter(([w, s]) => lv.includes(s))
       .map(([w, s]) => {
         const raw = wt[w] || null;
-        const translation = (raw && raw.toLowerCase() !== w.toLowerCase()) ? raw : null;
+        // A hand-edited translation is always honoured, even if it matches the
+        // word itself (cognates like "hotel" → "hotel").
+        const edited = !!edits[w];
+        const translation = (raw && (edited || raw.toLowerCase() !== w.toLowerCase())) ? raw : null;
         const srs = srsData[w] || { interval: 0, ease: 2.5, reviews: 0, dueAt: null };
         const isDue = !srs.dueAt || new Date(srs.dueAt).getTime() <= now;
         return { word: w, translation, stage: s, srs, isDue };
@@ -2037,6 +2089,37 @@ function LingQPage() {
               </div>
             </div>
           </div>
+          {/* Sits below the card so tapping it never flips the card. */}
+          {studyFlipped && card && (
+            <div className="lq-card-edit-row">
+              {cardEdit === null ? (
+                <button
+                  className="lq-trans-edit-btn"
+                  onClick={() => setCardEdit(liveTranslation || '')}
+                >✎ Edit translation</button>
+              ) : (
+                <div className="lq-trans-edit" style={{maxWidth:'420px'}}>
+                  <input
+                    className="lq-trans-input"
+                    value={cardEdit}
+                    autoFocus
+                    placeholder="Your translation…"
+                    onChange={e => setCardEdit(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { saveWordTranslation(effectiveLang, card.word, cardEdit); setCardEdit(null); }
+                      else if (e.key === 'Escape') setCardEdit(null);
+                    }}
+                  />
+                  <button className="lq-trans-save" onClick={() => {
+                    saveWordTranslation(effectiveLang, card.word, cardEdit);
+                    setCardEdit(null);
+                  }}>Save</button>
+                  <button className="lq-trans-cancel" onClick={() => setCardEdit(null)}>Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
+
           {!studyFlipped ? (
             <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:'13px',marginTop:'8px'}}>
               Tap the card to see the answer
@@ -2478,7 +2561,8 @@ function LingQPage() {
           if (ctx.cancelled) { flush(); return; }
           const f = lqDataRef.current;
           const wt = f.wordTranslations?.[langOpt.code] || {};
-          if ((wt[word] && !isBadTranslation(wt[word])) || pending[word]) continue;
+          const edited = (f.translationEdits?.[langOpt.code] || {})[word];
+          if (edited || (wt[word] && !isBadTranslation(wt[word])) || pending[word]) continue;
           const tr = await fetchTranslation(word, langOpt.apiCode);
           if (ctx.cancelled) { flush(); return; }
           if (tr && tr !== '(unavailable)') {
@@ -2726,9 +2810,48 @@ function LingQPage() {
               <button className="lq-popup-audio-btn" title="Pronounce" onClick={() => speakInLang(popup.word, popup.langOption.speechLang)}>🔊</button>
             </div>
             <hr className="lq-popup-divider" />
-            <div className={`lq-popup-translation ${popup.loading ? 'lq-loading' : ''}`}>
-              {popup.loading ? 'Translating…' : popup.translation}
-            </div>
+            {transEdit === null ? (
+              <div className="lq-trans-row">
+                <div className={`lq-popup-translation ${popup.loading ? 'lq-loading' : ''}`}>
+                  {popup.loading ? 'Translating…' : popup.translation}
+                  {popup.key && isEditedTranslation(lang.code, popup.key) && (
+                    <span className="lq-trans-edited"> · edited</span>
+                  )}
+                </div>
+                {popup.key && !popup.loading && (
+                  <button
+                    className="lq-trans-edit-btn"
+                    title="Edit this translation"
+                    onClick={() => setTransEdit(
+                      (!popup.translation || popup.translation === '(unavailable)') ? '' : popup.translation
+                    )}
+                  >✎</button>
+                )}
+              </div>
+            ) : (
+              <div className="lq-trans-edit">
+                <input
+                  className="lq-trans-input"
+                  value={transEdit}
+                  autoFocus
+                  placeholder="Your translation…"
+                  onChange={e => setTransEdit(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const saved = saveWordTranslation(lang.code, popup.key, transEdit);
+                      setPopup(p => p ? { ...p, translation: saved || '(unavailable)' } : p);
+                      setTransEdit(null);
+                    } else if (e.key === 'Escape') setTransEdit(null);
+                  }}
+                />
+                <button className="lq-trans-save" onClick={() => {
+                  const saved = saveWordTranslation(lang.code, popup.key, transEdit);
+                  setPopup(p => p ? { ...p, translation: saved || '(unavailable)' } : p);
+                  setTransEdit(null);
+                }}>Save</button>
+                <button className="lq-trans-cancel" onClick={() => setTransEdit(null)}>Cancel</button>
+              </div>
+            )}
             {popup.key && (
               <>
                 <div className="lq-popup-section-label">Learning stage</div>
