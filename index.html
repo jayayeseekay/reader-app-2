@@ -169,6 +169,27 @@
   .lq-stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: 6px; }
   .lq-stat-value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+  /* Progress stats panel */
+  .lq-stats-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; max-width: 620px; margin-bottom: 4px; }
+  .lq-stats-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .lq-stats-panel-title { font-size: 14px; font-weight: 600; }
+  .lq-stats-ranges { display: flex; gap: 3px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+  .lq-range-btn { background: transparent; border: 0; border-radius: 6px; padding: 5px 9px; color: var(--text-muted); font-size: 11px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all var(--transition); }
+  .lq-range-btn:hover { color: var(--text-primary); }
+  .lq-range-btn.lq-range-active { background: var(--accent); color: #fff; }
+  .lq-chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .lq-chart-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+  .lq-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none; }
+  .lq-legend-item.lq-legend-off { opacity: 0.4; }
+  .lq-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .lq-stats-empty { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
+
+  /* Study level filter */
+  .lq-level-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .lq-level-chip { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all var(--transition); }
+  .lq-level-chip:hover { color: var(--text-primary); border-color: var(--accent); }
+  .lq-level-chip.lq-level-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
   /* Story Generator */
   .lq-story-gen { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; max-width: 620px; position: relative; overflow: hidden; margin-bottom: 4px; }
   .lq-story-gen::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(to bottom, #a855f7, var(--accent)); border-radius: 2px 0 0 2px; }
@@ -651,6 +672,129 @@ async function fetchTranslation(word, fromCode) {
   }
 }
 
+// ── Progress history helpers ─────────────────────────────────────
+// History is stored as lqData.history[lang]["YYYY-MM-DD"] = { k, l }, where k/l
+// are that day's NET change in known / learning counts. One tiny entry per day.
+function todayKey(d) {
+  const dt = d ? new Date(d) : new Date();
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+// Lifetime running totals: start from today's ACTUAL counts and walk backwards,
+// subtracting each day's recorded delta. Days before tracking began have no
+// deltas, so the line is simply flat there — expected, not a bug.
+function buildProgressSeries(hist, days, curKnown, curLearn) {
+  const pts = [];
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let k = curKnown, l = curLearn;
+  for (let i = 0; i < days; i++) {
+    const d = new Date(today); d.setDate(today.getDate() - i);
+    const key = todayKey(d);
+    const delta = hist[key] || {};
+    const dk = delta.k || 0, dl = delta.l || 0;
+    pts.unshift({ date: key, dateObj: d, known: Math.max(0, k), learning: Math.max(0, l), dk, dl });
+    k -= dk; l -= dl;
+  }
+  return pts;
+}
+
+// Long ranges get bucketed so labels stay readable. Buckets are aligned to the
+// newest day, so the most recent bucket is always complete.
+function bucketSeries(pts, size) {
+  if (size <= 1) return pts;
+  const out = [];
+  for (let end = pts.length; end > 0; end -= size) {
+    const chunk = pts.slice(Math.max(0, end - size), end);
+    const last = chunk[chunk.length - 1];
+    out.unshift({
+      date: last.date, dateObj: last.dateObj,
+      known: last.known, learning: last.learning,
+      dk: chunk.reduce((a, c) => a + c.dk, 0),
+      dl: chunk.reduce((a, c) => a + c.dl, 0),
+    });
+  }
+  return out;
+}
+
+const STATS_RANGES = [
+  { label: '7d',  days: 7,   bucket: 1 },
+  { label: '30d', days: 30,  bucket: 1 },
+  { label: '60d', days: 60,  bucket: 1 },
+  { label: '90d', days: 90,  bucket: 1 },
+  { label: '6mo', days: 182, bucket: 7 },
+  { label: '1y',  days: 365, bucket: 30 },
+];
+
+function ProgressChart({ points, showKnown, showLearning, bucket }) {
+  const W = 720, H = 250;
+  const padL = 46, padR = 14, padT = 20, padB = 28;
+  const n = points.length;
+  if (n === 0) return null;
+
+  const vals = [];
+  if (showKnown)    points.forEach(p => vals.push(p.known));
+  if (showLearning) points.forEach(p => vals.push(p.learning));
+  if (vals.length === 0) vals.push(0, 1);   // both series hidden — keep the axes sane
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { hi = lo + 1; lo = Math.max(0, lo - 1); }   // flat line → give it room
+  const span = hi - lo;
+  lo = Math.max(0, lo - span * 0.12);
+  hi = hi + span * 0.18;
+
+  const x = i => padL + (n === 1 ? (W - padL - padR) / 2 : (i * (W - padL - padR)) / (n - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+
+  const line = key => points.map((p, i) => `${x(i)},${y(p[key])}`).join(' ');
+  // Only label points when they're sparse enough to stay legible.
+  const showLabels = n <= 40;
+  const gridVals = [0, 0.25, 0.5, 0.75, 1].map(f => lo + (hi - lo) * f);
+
+  const fmtDate = d => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const tickIdx = [];
+  const tickStep = Math.max(1, Math.ceil(n / 6));
+  for (let i = n - 1; i >= 0; i -= tickStep) tickIdx.unshift(i);
+
+  return (
+    <svg className="lq-chart-svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+      {gridVals.map((gv, i) => (
+        <g key={i}>
+          <line x1={padL} x2={W - padR} y1={y(gv)} y2={y(gv)} stroke="var(--border)" strokeWidth="1" opacity="0.5" />
+          <text x={padL - 8} y={y(gv) + 3.5} textAnchor="end" fontSize="10" fill="var(--text-muted)">{Math.round(gv)}</text>
+        </g>
+      ))}
+      {tickIdx.map(i => (
+        <text key={i} x={x(i)} y={H - 9} textAnchor="middle" fontSize="10" fill="var(--text-muted)">
+          {fmtDate(points[i].dateObj)}
+        </text>
+      ))}
+
+      {showLearning && <polyline points={line('learning')} fill="none" stroke="#fde047" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+      {showKnown    && <polyline points={line('known')}    fill="none" stroke="#22c55e" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+
+      {showLearning && points.map((p, i) => (
+        <g key={'l' + i}>
+          <circle cx={x(i)} cy={y(p.learning)} r="2.6" fill="#fde047" />
+          {showLabels && p.dl !== 0 && (
+            <text x={x(i)} y={y(p.learning) + 14} textAnchor="middle" fontSize="9" fill="#fde047">
+              {p.dl > 0 ? '+' + p.dl : p.dl}
+            </text>
+          )}
+        </g>
+      ))}
+      {showKnown && points.map((p, i) => (
+        <g key={'k' + i}>
+          <circle cx={x(i)} cy={y(p.known)} r="2.6" fill="#22c55e" />
+          {showLabels && p.dk !== 0 && (
+            <text x={x(i)} y={y(p.known) - 7} textAnchor="middle" fontSize="9" fill="#22c55e">
+              {p.dk > 0 ? '+' + p.dk : p.dk}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 function LingQPage() {
   const [lqData, saveLqData, loaded] = useData('lingq', {
     texts: [],
@@ -751,6 +895,13 @@ function LingQPage() {
   const storyTimerRef = React.useRef(null);
   const [libraryTab, setLibraryTab]       = useState('imported'); // 'imported' | 'generated'
 
+  // Progress chart
+  const [statsRange, setStatsRange]             = useState('30d');
+  const [statsShowKnown, setStatsShowKnown]     = useState(true);
+  const [statsShowLearning, setStatsShowLearning] = useState(true);
+  // Study: which saved levels (1–4) to include. All by default.
+  const [studyLevels, setStudyLevels]     = useState([1, 2, 3, 4]);
+
   if (!loaded) return <div className="lq-page"><p style={{color:'var(--text-muted)'}}>Loading…</p></div>;
 
   const texts = lqData.texts || [];
@@ -774,8 +925,36 @@ function LingQPage() {
   const activeText    = texts.find(t => t.id === activeTextId) || null;
 
   function setWS(langCode, updates) {
-    const next = { ...wordStatus, [langCode]: { ...(wordStatus[langCode] || {}), ...updates } };
-    saveLqData({ ...lqData, wordStatus: next });
+    const prevLang = wordStatus[langCode] || {};
+    const next = { ...wordStatus, [langCode]: { ...prevLang, ...updates } };
+
+    // Record the day's NET change in known / learning counts. Stored as one tiny
+    // entry per day per language (~30 bytes) inside the save that was happening
+    // anyway — no extra requests, negligible bandwidth.
+    // Net (not gross) so the numbers always match the running-total line: a word
+    // graduating from learning→known is -1 learning, +1 known.
+    const inLearn = s => typeof s === 'number' && s >= 1 && s <= 4;
+    let dk = 0, dl = 0;
+    for (const [k, ns] of Object.entries(updates)) {
+      const ps = prevLang[k];
+      if (ns === ps) continue;
+      if (ns === 5 && ps !== 5) dk++;
+      else if (ps === 5 && ns !== 5) dk--;
+      if (inLearn(ns) && !inLearn(ps)) dl++;
+      else if (inLearn(ps) && !inLearn(ns)) dl--;
+    }
+
+    const payload = { ...lqData, wordStatus: next };
+    if (dk !== 0 || dl !== 0) {
+      const day = todayKey();
+      const hist = { ...(lqData.history || {}) };
+      const hLang = { ...(hist[langCode] || {}) };
+      const cur = hLang[day] || { k: 0, l: 0 };
+      hLang[day] = { k: cur.k + dk, l: cur.l + dl };
+      hist[langCode] = hLang;
+      payload.history = hist;
+    }
+    saveLqData(payload);
   }
 
   function updateWord(key, status, langCode) {
@@ -1153,13 +1332,15 @@ function LingQPage() {
     return a;
   }
 
-  function buildStudyCards(langCode) {
+  // `levels` limits which saved levels (1–4) are studied, e.g. [1] or [1,2].
+  function buildStudyCards(langCode, levels) {
+    const lv = (Array.isArray(levels) && levels.length) ? levels : [1, 2, 3, 4];
     const ws = lqDataRef.current.wordStatus?.[langCode] || {};
     const wt = lqDataRef.current.wordTranslations?.[langCode] || {};
     const srsData = lqDataRef.current.srs?.[langCode] || {};
     const now = Date.now();
     const learningWords = Object.entries(ws)
-      .filter(([w, s]) => s >= 1 && s <= 4)
+      .filter(([w, s]) => lv.includes(s))
       .map(([w, s]) => {
         const raw = wt[w] || null;
         const translation = (raw && raw.toLowerCase() !== w.toLowerCase()) ? raw : null;
@@ -1247,7 +1428,7 @@ function LingQPage() {
     }
     setStudyFetching(false);
     if (count > 0) {
-      const freshCards = buildStudyCards(langCode);
+      const freshCards = buildStudyCards(langCode, studyLevels);
       setStudyCards(freshCards);
     }
   }
@@ -1721,6 +1902,40 @@ function LingQPage() {
             </div>
             {studyFetching && <span style={{color:'var(--accent)',fontSize:'12px'}}>Translating…</span>}
           </div>
+
+          {/* Pick which saved levels to study. Toggling rebuilds the deck. */}
+          <div className="lq-level-filter">
+            <span style={{fontSize:'12px',color:'var(--text-muted)',marginRight:'2px'}}>Levels:</span>
+            {[1, 2, 3, 4].map(lv => {
+              const on = studyLevels.includes(lv);
+              const available = Object.values(langWS).filter(s => s === lv).length;
+              return (
+                <button
+                  key={lv}
+                  className={'lq-level-chip' + (on ? ' lq-level-on' : '')}
+                  title={lv === 1 ? "Level 1 — new / don't know it" : lv === 4 ? 'Level 4 — nearly known' : 'Level ' + lv}
+                  onClick={() => {
+                    const next = on ? studyLevels.filter(v => v !== lv) : [...studyLevels, lv].sort();
+                    if (next.length === 0) return;          // never allow an empty deck
+                    setStudyLevels(next);
+                    const fresh = buildStudyCards(effectiveLang, next);
+                    setStudyCards(fresh);
+                    setStudyIdx(0);
+                    studyFetchRef.current = null;           // re-translate for the new deck
+                  }}
+                >{lv} <span style={{opacity:0.7,fontWeight:400}}>({available})</span></button>
+              );
+            })}
+            {studyLevels.length < 4 && (
+              <button className="lq-level-chip" onClick={() => {
+                setStudyLevels([1, 2, 3, 4]);
+                setStudyCards(buildStudyCards(effectiveLang, [1, 2, 3, 4]));
+                setStudyIdx(0);
+                studyFetchRef.current = null;
+              }}>All</button>
+            )}
+          </div>
+
           <div className="lq-study-modes">
             <div className="lq-study-mode-card" onClick={() => startMode('flashcard')}>
               <div className="lq-study-mode-icon">🃏</div>
@@ -1756,7 +1971,7 @@ function LingQPage() {
             <div className="lq-study-score-label">cards reviewed</div>
             <div className="lq-study-result-actions">
               <button className="btn btn-primary" onClick={() => {
-                const freshCards = buildStudyCards(effectiveLang);
+                const freshCards = buildStudyCards(effectiveLang, studyLevels);
                 setStudyCards(freshCards);
                 studyFetchRef.current = null;
                 setStudyMode(null);
@@ -1782,7 +1997,7 @@ function LingQPage() {
               <div className="lq-study-score-label">cards reviewed</div>
               <div className="lq-study-result-actions">
                 <button className="btn btn-primary" onClick={() => {
-                  const freshCards = buildStudyCards(effectiveLang);
+                  const freshCards = buildStudyCards(effectiveLang, studyLevels);
                   setStudyCards(freshCards);
                   studyFetchRef.current = null;
                   setStudyMode(null);
@@ -2035,7 +2250,7 @@ function LingQPage() {
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'20px'}}>
                   {!isKnownModal && entries.length > 0 ? (
                     <button className="btn btn-primary" onClick={() => {
-                      const cards = buildStudyCards(effectiveLang);
+                      const cards = buildStudyCards(effectiveLang, studyLevels);
                       if (cards.length === 0) return;
                       setStudyCards(cards);
                       setStudyIdx(0);
@@ -2123,39 +2338,65 @@ function LingQPage() {
           </div>
         )}
 
-        <div className="lq-story-gen">
-            <div className="lq-story-gen-header">
-              <div className="lq-story-gen-title">Story Generator</div>
-              <div className="lq-story-gen-desc">Generate a story{learningCount > 0 ? ' using your learning words' : ' at your level'}</div>
-            </div>
-            <div className="lq-story-gen-controls" style={{flexDirection:'column',alignItems:'stretch'}}>
-              {learningCount > 0 && (
-              <div className="lq-story-gen-slider-row">
-                <label className="lq-story-gen-label">Words to include: {Math.round(learningCount * storyPct / 100)} of {learningCount} ({storyPct}%){storyPct === 0 ? ' — general story, no vocab' : ''}</label>
-                <input type="range" min="0" max="100" step="5" value={storyPct} onChange={e => setStoryPct(parseInt(e.target.value))} className="lq-story-slider" />
+        {(() => {
+          const range  = STATS_RANGES.find(r => r.label === statsRange) || STATS_RANGES[1];
+          const hist   = lqData.history?.[effectiveLang] || {};
+          const raw    = buildProgressSeries(hist, range.days, knownCount, learningCount);
+          const points = bucketSeries(raw, range.bucket);
+          const anyData = Object.keys(hist).length > 0;
+          return (
+            <div className="lq-stats-panel">
+              <div className="lq-stats-panel-head">
+                <div className="lq-stats-panel-title">Progress</div>
+                <div className="lq-stats-ranges">
+                  {STATS_RANGES.map(r => (
+                    <button
+                      key={r.label}
+                      className={'lq-range-btn' + (statsRange === r.label ? ' lq-range-active' : '')}
+                      onClick={() => setStatsRange(r.label)}
+                    >{r.label}</button>
+                  ))}
+                </div>
               </div>
+
+              <ProgressChart
+                points={points}
+                showKnown={statsShowKnown}
+                showLearning={statsShowLearning}
+                bucket={range.bucket}
+              />
+
+              <div className="lq-chart-legend">
+                <div
+                  className={'lq-legend-item' + (statsShowKnown ? '' : ' lq-legend-off')}
+                  onClick={() => setStatsShowKnown(v => !v)}
+                >
+                  <span className="lq-legend-dot" style={{background:'#22c55e'}}></span>
+                  Known — {knownCount}
+                </div>
+                <div
+                  className={'lq-legend-item' + (statsShowLearning ? '' : ' lq-legend-off')}
+                  onClick={() => setStatsShowLearning(v => !v)}
+                >
+                  <span className="lq-legend-dot" style={{background:'#fde047'}}></span>
+                  Learning — {learningCount}
+                </div>
+                {range.bucket > 1 && (
+                  <span style={{fontSize:'11px',color:'var(--text-muted)'}}>
+                    grouped by {range.bucket} days
+                  </span>
+                )}
+              </div>
+
+              {!anyData && (
+                <div className="lq-stats-empty">
+                  No day-by-day history yet — it starts recording from today. The lines show your
+                  current totals until there are daily changes to plot.
+                </div>
               )}
-              <div className="lq-story-gen-slider-row">
-                <label className="lq-story-gen-label">Story length: {['Short (50–100 words)','Medium (150–250 words)','Long (300–500 words)'][storyLength]}</label>
-                <input type="range" min="0" max="2" step="1" value={storyLength} onChange={e => setStoryLength(parseInt(e.target.value))} className="lq-story-slider" />
-              </div>
-              <div className="lq-story-gen-slider-row">
-                <label className="lq-story-gen-label">CEFR Level: {['A1 — Beginner','A2 — Elementary','B1 — Intermediate','B2 — Upper Intermediate','C1 — Advanced','C2 — Proficient'][storyCEFR]}</label>
-                <input type="range" min="0" max="5" step="1" value={storyCEFR} onChange={e => setStoryCEFR(parseInt(e.target.value))} className="lq-story-slider" />
-              </div>
-              <button className="lq-story-gen-btn" onClick={generateStory} disabled={storyGenerating} style={{alignSelf:'flex-start'}}>
-                {storyGenerating ? 'Generating…' : 'Generate Story'}
-              </button>
             </div>
-            {storyGenerating && storyStatus && (
-              <div className="lq-story-gen-status">
-                <span className="lq-story-gen-spinner"></span>
-                <span>{storyStatus}</span>
-                <span className="lq-story-gen-timer">{storyElapsed}s</span>
-              </div>
-            )}
-            {storyError && <div className="lq-story-gen-error">{storyError}</div>}
-          </div>
+          );
+        })()}
 
         <div className="lq-library-tabs">
           <button className={'lq-library-tab' + (libraryTab === 'imported' ? ' lq-library-tab-active' : '')} onClick={() => setLibraryTab('imported')}>
