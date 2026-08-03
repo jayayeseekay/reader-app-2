@@ -189,6 +189,8 @@
   .lq-counter { min-width: 44px; text-align: center; padding: 5px 12px; border-radius: 9px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .lq-counter-green { color: #22c55e; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.35); }
   .lq-counter-red   { color: #ef4444; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.35); }
+  .lq-counter-speak { color: var(--text-muted); background: var(--bg-tertiary); border: 1px solid var(--border); cursor: pointer; font-family: inherit; min-width: 0; }
+  .lq-counter-speak:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Study settings */
   .lq-settings-btn { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--text-muted); font-size: 12px; font-family: inherit; cursor: pointer; transition: all var(--transition); }
@@ -769,20 +771,43 @@ function todayKey(d) {
   return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
 }
 
+// Merge a day's counters into history. Zero fields are dropped so each entry
+// stays as small as possible (e.g. {"2026-08-03":{"f":12}}).
+function bumpHistory(hist, langCode, patch) {
+  const out = { ...(hist || {}) };
+  const hLang = { ...(out[langCode] || {}) };
+  const day = todayKey();
+  const cur = hLang[day] || {};
+  const next = {
+    k: (cur.k || 0) + (patch.k || 0),
+    l: (cur.l || 0) + (patch.l || 0),
+    f: (cur.f || 0) + (patch.f || 0),
+  };
+  Object.keys(next).forEach(key => { if (!next[key]) delete next[key]; });
+  hLang[day] = next;
+  out[langCode] = hLang;
+  return out;
+}
+
 // Lifetime running totals: start from today's ACTUAL counts and walk backwards,
 // subtracting each day's recorded delta. Days before tracking began have no
-// deltas, so the line is simply flat there — expected, not a bug.
-function buildProgressSeries(hist, days, curKnown, curLearn) {
+// deltas, so the known/learning lines are simply flat there — expected, not a
+// bug. Flashcards are counted purely from history, so their line is exact.
+function buildProgressSeries(hist, days, curKnown, curLearn, curCards) {
   const pts = [];
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  let k = curKnown, l = curLearn;
+  let k = curKnown, l = curLearn, f = curCards;
   for (let i = 0; i < days; i++) {
     const d = new Date(today); d.setDate(today.getDate() - i);
     const key = todayKey(d);
     const delta = hist[key] || {};
-    const dk = delta.k || 0, dl = delta.l || 0;
-    pts.unshift({ date: key, dateObj: d, known: Math.max(0, k), learning: Math.max(0, l), dk, dl });
-    k -= dk; l -= dl;
+    const dk = delta.k || 0, dl = delta.l || 0, df = delta.f || 0;
+    pts.unshift({
+      date: key, dateObj: d,
+      known: Math.max(0, k), learning: Math.max(0, l), cards: Math.max(0, f),
+      dk, dl, df,
+    });
+    k -= dk; l -= dl; f -= df;
   }
   return pts;
 }
@@ -797,9 +822,10 @@ function bucketSeries(pts, size) {
     const last = chunk[chunk.length - 1];
     out.unshift({
       date: last.date, dateObj: last.dateObj,
-      known: last.known, learning: last.learning,
+      known: last.known, learning: last.learning, cards: last.cards,
       dk: chunk.reduce((a, c) => a + c.dk, 0),
       dl: chunk.reduce((a, c) => a + c.dl, 0),
+      df: chunk.reduce((a, c) => a + c.df, 0),
     });
   }
   return out;
@@ -814,16 +840,15 @@ const STATS_RANGES = [
   { label: '1y',  days: 365, bucket: 30 },
 ];
 
-function ProgressChart({ points, showKnown, showLearning, bucket }) {
+// Draws whichever single series is selected. `field` is the running total,
+// `deltaField` the per-point change shown as a small label.
+function ProgressChart({ points, field, deltaField, color }) {
   const W = 720, H = 250;
   const padL = 46, padR = 14, padT = 20, padB = 28;
   const n = points.length;
   if (n === 0) return null;
 
-  const vals = [];
-  if (showKnown)    points.forEach(p => vals.push(p.known));
-  if (showLearning) points.forEach(p => vals.push(p.learning));
-  if (vals.length === 0) vals.push(0, 1);   // both series hidden — keep the axes sane
+  const vals = points.map(p => p[field]);
   let lo = Math.min(...vals), hi = Math.max(...vals);
   if (hi === lo) { hi = lo + 1; lo = Math.max(0, lo - 1); }   // flat line → give it room
   const span = hi - lo;
@@ -857,25 +882,14 @@ function ProgressChart({ points, showKnown, showLearning, bucket }) {
         </text>
       ))}
 
-      {showLearning && <polyline points={line('learning')} fill="none" stroke="#fde047" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
-      {showKnown    && <polyline points={line('known')}    fill="none" stroke="#22c55e" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+      <polyline points={line(field)} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
 
-      {showLearning && points.map((p, i) => (
-        <g key={'l' + i}>
-          <circle cx={x(i)} cy={y(p.learning)} r="2.6" fill="#fde047" />
-          {showLabels && p.dl !== 0 && (
-            <text x={x(i)} y={y(p.learning) + 14} textAnchor="middle" fontSize="9" fill="#fde047">
-              {p.dl > 0 ? '+' + p.dl : p.dl}
-            </text>
-          )}
-        </g>
-      ))}
-      {showKnown && points.map((p, i) => (
-        <g key={'k' + i}>
-          <circle cx={x(i)} cy={y(p.known)} r="2.6" fill="#22c55e" />
-          {showLabels && p.dk !== 0 && (
-            <text x={x(i)} y={y(p.known) - 7} textAnchor="middle" fontSize="9" fill="#22c55e">
-              {p.dk > 0 ? '+' + p.dk : p.dk}
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={x(i)} cy={y(p[field])} r="2.6" fill={color} />
+          {showLabels && p[deltaField] !== 0 && (
+            <text x={x(i)} y={y(p[field]) - 7} textAnchor="middle" fontSize="9" fill={color}>
+              {p[deltaField] > 0 ? '+' + p[deltaField] : p[deltaField]}
             </text>
           )}
         </g>
@@ -883,6 +897,13 @@ function ProgressChart({ points, showKnown, showLearning, bucket }) {
     </svg>
   );
 }
+
+// The three series the Progress panel can show.
+const STATS_SERIES = [
+  { id: 'known',    field: 'known',    delta: 'dk', color: '#22c55e', label: 'Known' },
+  { id: 'learning', field: 'learning', delta: 'dl', color: '#fde047', label: 'Learning' },
+  { id: 'cards',    field: 'cards',    delta: 'df', color: '#60a5fa', label: 'Flashcards' },
+];
 
 function LingQPage() {
   const [lqData, saveLqData, loaded] = useData('lingq', {
@@ -1004,6 +1025,20 @@ function LingQPage() {
   React.useEffect(() => { setTransEdit(null); }, [popup && popup.key]);
   React.useEffect(() => { setCardEdit(null); }, [studyIdx, studyMode]);
 
+  // Pronounce each flashcard as it APPEARS (the word is on the front of the
+  // card). Guarded by a token so re-renders don't repeat the same word.
+  const spokenRef = React.useRef(null);
+  React.useEffect(() => {
+    if (view !== 'study' || studyMode !== 'flashcard' || !studySettings.autoSpeak) { spokenRef.current = null; return; }
+    const c = studyCards[studyIdx];
+    if (!c) return;
+    const token = studyIdx + '|' + c.word;
+    if (spokenRef.current === token) return;
+    spokenRef.current = token;
+    const opt = LANG_OPTIONS.find(l => l.code === effectiveLang);
+    if (opt) speakInLang(c.word, opt.speechLang);
+  }, [view, studyMode, studyIdx, studyCards, studySettings.autoSpeak, effectiveLang]);
+
   if (!loaded) return <div className="lq-page"><p style={{color:'var(--text-muted)'}}>Loading…</p></div>;
 
   const texts = lqData.texts || [];
@@ -1048,13 +1083,7 @@ function LingQPage() {
 
     const payload = { ...lqData, wordStatus: next };
     if (dk !== 0 || dl !== 0) {
-      const day = todayKey();
-      const hist = { ...(lqData.history || {}) };
-      const hLang = { ...(hist[langCode] || {}) };
-      const cur = hLang[day] || { k: 0, l: 0 };
-      hLang[day] = { k: cur.k + dk, l: cur.l + dl };
-      hist[langCode] = hLang;
-      payload.history = hist;
+      payload.history = bumpHistory(lqData.history, langCode, { k: dk, l: dl });
     }
     saveLqData(payload);
   }
@@ -1537,6 +1566,8 @@ function LingQPage() {
       ...fresh,
       srs: { ...(fresh.srs || {}), [langCode]: { ...(fresh.srs?.[langCode] || {}), [word]: entry } },
       studyDay: { ...(fresh.studyDay || {}), [langCode]: nextDay },
+      // Every rating counts as one flashcard reviewed (same save, no extra traffic).
+      history: bumpHistory(fresh.history, langCode, { f: 1 }),
     });
     return entry;
   }
@@ -2270,6 +2301,17 @@ function LingQPage() {
               <div className="lq-card-counters">
                 <span className="lq-counter lq-counter-green" title="New cards left for today">{green}</span>
                 <span className="lq-counter lq-counter-red" title="Cards you marked Again — coming back today">{red}</span>
+                {card && (
+                  <button
+                    className="lq-counter lq-counter-speak"
+                    title="Pronounce this word"
+                    onClick={e => {
+                      e.stopPropagation();
+                      const opt = LANG_OPTIONS.find(l => l.code === effectiveLang);
+                      if (opt) speakInLang(card.word, opt.speechLang);
+                    }}
+                  >🔊</button>
+                )}
               </div>
             );
           })()}
@@ -2277,10 +2319,7 @@ function LingQPage() {
             if (advancingRef.current) return;
             const revealing = !studyFlipped;
             setStudyFlipped(f => !f);
-            if (revealing && card) {
-              markCardOpened(effectiveLang, card.word);
-              if (studySettings.autoSpeak) speakInLang(card.word, lang.speechLang);
-            }
+            if (revealing && card) markCardOpened(effectiveLang, card.word);
           }}>
             <div className={`lq-flashcard${studyFlipped ? ' flipped' : ''}`}>
               <div className="lq-flashcard-face">
@@ -2635,8 +2674,13 @@ function LingQPage() {
         {(() => {
           const range  = STATS_RANGES.find(r => r.label === statsRange) || STATS_RANGES[1];
           const hist   = lqData.history?.[effectiveLang] || {};
-          const raw    = buildProgressSeries(hist, range.days, knownCount, learningCount);
+          // Flashcards are counted entirely from history, so the all-time total
+          // is just the sum of every day's count.
+          const cardsTotal = Object.values(hist).reduce((a, d) => a + (d.f || 0), 0);
+          const raw    = buildProgressSeries(hist, range.days, knownCount, learningCount, cardsTotal);
           const points = bucketSeries(raw, range.bucket);
+          const series = STATS_SERIES.find(s => s.id === statsSeries) || STATS_SERIES[0];
+          const totals = { known: knownCount, learning: learningCount, cards: cardsTotal };
           return (
             <div className="lq-stats-panel">
               <div className="lq-stats-panel-head">
@@ -2654,27 +2698,23 @@ function LingQPage() {
 
               <ProgressChart
                 points={points}
-                showKnown={statsSeries === 'known'}
-                showLearning={statsSeries === 'learning'}
-                bucket={range.bucket}
+                field={series.field}
+                deltaField={series.delta}
+                color={series.color}
               />
 
               {/* One series at a time — clicking switches which line is shown. */}
               <div className="lq-chart-legend">
-                <div
-                  className={'lq-legend-item' + (statsSeries === 'known' ? '' : ' lq-legend-off')}
-                  onClick={() => setStatsSeries('known')}
-                >
-                  <span className="lq-legend-dot" style={{background:'#22c55e'}}></span>
-                  Known — {knownCount}
-                </div>
-                <div
-                  className={'lq-legend-item' + (statsSeries === 'learning' ? '' : ' lq-legend-off')}
-                  onClick={() => setStatsSeries('learning')}
-                >
-                  <span className="lq-legend-dot" style={{background:'#fde047'}}></span>
-                  Learning — {learningCount}
-                </div>
+                {STATS_SERIES.map(s => (
+                  <div
+                    key={s.id}
+                    className={'lq-legend-item' + (statsSeries === s.id ? '' : ' lq-legend-off')}
+                    onClick={() => setStatsSeries(s.id)}
+                  >
+                    <span className="lq-legend-dot" style={{background:s.color}}></span>
+                    {s.label} — {totals[s.id]}
+                  </div>
+                ))}
                 {range.bucket > 1 && (
                   <span style={{fontSize:'11px',color:'var(--text-muted)'}}>
                     grouped by {range.bucket} days
